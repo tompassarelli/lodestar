@@ -1,0 +1,45 @@
+# Example multi-tenant Lodestar topology on ONE host: an authenticated gateway in
+# front of one coordinator (+ its own claims.log) per tenant.
+#
+# Coordinators bind loopback, so every service shares the host network namespace
+# (`network_mode: host`). A bridge network or multiple hosts needs a configurable
+# coordinator bind address — that's the multi-host roadmap item in docs/hosting.md.
+#
+# Usage:
+#   docker build -t lodestar:latest ..
+#   # provision each tenant (mints a token, starts nothing here — just registers):
+#   mkdir -p /srv/lodestar/tenants
+#   docker compose run --rm gateway bash -lc \
+#     'LODESTAR_TENANT_ROOT=/srv/lodestar/tenants GATEWAY_TENANTS=/srv/lodestar/tenants.edn \
+#      FRAM_HOME=/opt/fram /opt/lodestar/deploy/gateway/provision.sh acme 7801'
+#   docker compose up -d
+#   # Put TLS (Caddy/nginx) in front of :8088 — the gateway speaks plain HTTP.
+
+services:
+  coordinator-acme:
+    image: lodestar:latest
+    network_mode: host
+    environment:
+      FRAM_PORT: "7801"
+      FRAM_LOG: /srv/lodestar/tenants/acme/claims.log
+    volumes: ["/srv/lodestar:/srv/lodestar"]
+    restart: unless-stopped
+
+  coordinator-globex:
+    image: lodestar:latest
+    network_mode: host
+    environment:
+      FRAM_PORT: "7802"
+      FRAM_LOG: /srv/lodestar/tenants/globex/claims.log
+    volumes: ["/srv/lodestar:/srv/lodestar"]
+    restart: unless-stopped
+
+  gateway:
+    image: lodestar:latest
+    network_mode: host
+    command: ["bash","-lc","exec bb /opt/lodestar/deploy/gateway/gateway.clj"]
+    environment:
+      GATEWAY_PORT: "8088"
+      GATEWAY_TENANTS: /srv/lodestar/tenants.edn
+    volumes: ["/srv/lodestar:/srv/lodestar"]
+    restart: unless-stopped

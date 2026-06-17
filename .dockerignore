@@ -1,0 +1,5 @@
+.git
+.github
+**/*.log
+deploy/gateway/tenants.edn
+src/fram

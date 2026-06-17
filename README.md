@@ -9,9 +9,11 @@ engine** (a domain-neutral claim substrate). It supplies the *life domain*: the
 lifecycle projections, the cardinality vocab (`FRAM_SINGLE_VALUED`), capture
 conventions, time tracking, and the operating manual.
 
-This is a personal life-management tool, published as reference. It is shaped
-around how one operator works; expect to adapt the wrapper and conventions to
-your own setup.
+Run it three ways off one architecture — **on your laptop, on a server you own,
+or as a multi-tenant service you host for others.** No fork in the design; only
+the transport in front of the coordinator changes. See **[docs/hosting.md](docs/hosting.md)**
+and **[deploy/](deploy/)**. The conventions are still shaped around how one
+operator works — adapt the wrapper to your own setup.
 
 ## Shape
 
@@ -29,6 +31,15 @@ your own setup.
 - **Data** → your own private store (the canonical `claims.log`, projected to
   `~/.local/state/lodestar/` at runtime). Data is **not** part of this repo.
 
+## Hosting
+
+- **[docs/hosting.md](docs/hosting.md)** — the three modes (self-host single box,
+  self-host remote, multi-tenant SaaS), the instance-per-tenant model, security,
+  ops, and the roadmap.
+- **[deploy/](deploy/)** — `Dockerfile`, `docker-compose.example.yml`, systemd
+  units, and the authenticated **[gateway](deploy/gateway/)** (bearer token →
+  tenant → that tenant's coordinator) with `provision.sh` + an integration test.
+
 ## Docs
 
 - `docs/operating-manual.md` — the working manual: thread model, claim format,
@@ -36,15 +47,28 @@ your own setup.
 - `docs/claim-native-redesign.md` — the design record for the claim-native model.
 - `docs/PROPOSAL.md` — the original vision and architecture.
 
-## Building
+## Running and building
 
-Lodestar is a consumer of the [Fram](https://github.com/tompassarelli/fram)
-engine and is written in [Beagle](https://github.com/tompassarelli/beagle) (a
-Lisp that emits Clojure). Building from the `.bclj` sources requires both Fram
-and Beagle checked out alongside this repo; `build.sh` links the engine sources
-in (`src/fram`, gitignored) and compiles the life-domain modules into `out/`.
-Set `FRAM_HOME`/`BEAGLE_HOME` if they don't live at `~/code/fram` /
-`~/code/beagle`.
+**Running needs only [babashka](https://babashka.org)** — the compiled Clojure is
+committed in `out/` (no Beagle required at runtime), same as Fram. You need the
+Fram engine checked out too (`FRAM_HOME`, default `~/code/fram`); `bin/lodestar`
+puts both on the classpath.
+
+To **rebuild** from the `.bclj` sources you also need
+[Beagle](https://github.com/tompassarelli/beagle) (the Lisp Lodestar is written
+in). `build.sh` links the engine sources in (`src/fram`, gitignored) and compiles
+the life-domain modules into `out/`; commit the result when sources change. Set
+`FRAM_HOME`/`BEAGLE_HOME` if they aren't at `~/code/fram` / `~/code/beagle`.
+
+## Tests
+
+```sh
+CP="out:$FRAM_HOME/out"
+bb -cp "$CP" clock_test.clj
+bb -cp "$CP" staleness_test.clj
+FRAM_LOG="$FRAM_HOME/claims.log" bb -cp "$CP" cnf_lifecycle_test.clj
+bash deploy/gateway/smoke_test.sh        # gateway auth + routing
+```
 
 ## License
 

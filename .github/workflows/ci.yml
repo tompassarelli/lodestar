@@ -1,0 +1,33 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Lodestar
+        uses: actions/checkout@v4
+        with:
+          path: lodestar
+      - name: Checkout Fram engine
+        uses: actions/checkout@v4
+        with:
+          repository: tompassarelli/fram
+          path: fram
+      - name: Install babashka
+        run: curl -sL https://raw.githubusercontent.com/babashka/babashka/master/install | sudo bash
+
+      - name: Domain tests (run on the committed out/, no Beagle build needed)
+        working-directory: lodestar
+        run: |
+          CP="out:../fram/out"
+          bb -cp "$CP" clock_test.clj
+          bb -cp "$CP" staleness_test.clj
+          FRAM_LOG=../fram/claims.log bb -cp "$CP" cnf_lifecycle_test.clj
+
+      - name: Gateway integration smoke test
+        working-directory: lodestar
+        run: FRAM_HOME="$GITHUB_WORKSPACE/fram" bash deploy/gateway/smoke_test.sh
