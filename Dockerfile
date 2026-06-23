@@ -29,7 +29,7 @@ RUN curl -sL https://github.com/clojure/brew-install/releases/latest/download/li
 # FRAM_VERSION (override at build with --build-arg FRAM_REF=<sha>).
 ARG FRAM_REF=e78badabb43aa8ce1f507b8a8d74b86737cd34de
 WORKDIR /opt
-RUN git clone https://github.com/tompassarelli/fram \
+RUN git clone https://github.com/Autonymy/fram \
  && git -C fram checkout --quiet "${FRAM_REF}" \
  && (cd fram && clojure -P)   # prefetch the coordinator daemon's JVM deps (clojure + cheshire)
 COPY . /opt/lodestar

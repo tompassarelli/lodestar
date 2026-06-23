@@ -22,7 +22,7 @@ jobs:
       - name: Checkout Fram engine (pinned)
         uses: actions/checkout@v4
         with:
-          repository: tompassarelli/fram
+          repository: Autonymy/fram
           ref: ${{ steps.fram.outputs.ref }}
           path: fram
 
