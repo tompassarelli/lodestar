@@ -2,10 +2,10 @@
 
 // board.js — kanban of threads from :7977 (board) + :7978 (work), drag-to-write-claim.
 // Self-contained: injects scoped CSS. Exports window.mountBoard(el).
+// Views: Kanban (lifecycle columns), Active, Ready, Today, By Owner.
 
 (function () {
 
-  // @topic-* threads are an index (former tags), not execution work — off by default.
   let showTopics = false;
 
   const COLS = [
@@ -15,6 +15,14 @@
     { id: 'blocked',   label: 'Blocked' },
     { id: 'done',      label: 'Done' },
     { id: 'abandoned', label: 'Abandoned' },
+  ];
+
+  const VIEWS = [
+    { id: 'kanban', label: 'Kanban' },
+    { id: 'active', label: 'Active' },
+    { id: 'ready',  label: 'Ready' },
+    { id: 'today',  label: 'Today' },
+    { id: 'owner',  label: 'By Owner' },
   ];
 
   // ── CSS ──────────────────────────────────────────────────────────────────────
@@ -27,6 +35,10 @@
 .board-hdr-btn.active-on{background:#0d1e12;border-color:#4ade80;color:#4ade80}
 .board-hdr-btn.active-on:hover{background:#0f2517;color:#86efac}
 .board-hdr-status{margin-left:auto;font-size:.68rem;color:var(--faint,#5b678a)}
+.board-tabs{display:flex;align-items:center;gap:0;padding:0 1rem;border-bottom:1px solid var(--line,#283150);flex-shrink:0;background:rgba(13,17,28,.35)}
+.board-tab{font-size:.68rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;padding:.45rem .7rem;cursor:pointer;color:var(--faint,#5b678a);border-bottom:2px solid transparent;transition:color .1s,border-color .1s}
+.board-tab:hover{color:var(--dim,#8a96b4)}
+.board-tab.active{color:var(--accent,#6ea8ff);border-bottom-color:var(--accent,#6ea8ff)}
 .board-filter{display:flex;align-items:center;gap:.32rem;padding:.3rem 1rem;border-bottom:1px solid var(--line,#283150);flex-shrink:0;flex-wrap:wrap;background:rgba(13,17,28,.35)}
 .bfchip-label{font-size:.58rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--faint,#5b678a);flex-shrink:0}
 .bfchip{font-size:.64rem;padding:.15rem .42rem;border-radius:10px;border:1px solid var(--line,#283150);background:var(--bg2,#121624);color:var(--dim,#8a96b4);cursor:pointer;white-space:nowrap;transition:background .1s,color .1s,border-color .1s}
@@ -35,6 +47,7 @@
 .board-cols{display:flex;gap:.5rem;padding:.5rem;overflow-x:auto;flex:1;min-height:0;align-items:flex-start}
 .board-col{display:flex;flex-direction:column;min-width:168px;width:182px;flex-shrink:0;max-height:100%;background:var(--bg2,#121624);border:1px solid var(--line,#283150);border-radius:7px;overflow:hidden;transition:border-color .1s}
 .board-col.drag-over{border-color:var(--accent,#6ea8ff);background:#10142a}
+.board-col.view-col{width:260px;min-width:220px}
 .col-hdr{display:flex;justify-content:space-between;align-items:center;padding:.38rem .6rem;border-bottom:1px solid var(--line,#283150);flex-shrink:0}
 .col-label{font-size:.67rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--dim,#8a96b4)}
 .col-count{font-size:.62rem;padding:.05rem .32rem;border-radius:9px;background:var(--panel,#161b2c);color:var(--faint,#5b678a)}
@@ -47,6 +60,9 @@
 .bchip{font-size:.6rem;padding:.08rem .28rem;border-radius:3px;background:var(--bg2,#121624);color:var(--dim,#8a96b4);white-space:nowrap;max-width:96px;overflow:hidden;text-overflow:ellipsis}
 .bchip-driver{background:#0d1e12;color:#4ade80}
 .bchip-est{background:#1e1a08;color:#fbbf24}
+.bchip-overdue{background:#2a0d0d;color:#f87171}
+.bchip-today{background:#1e1a08;color:#fbbf24}
+.bchip-lifecycle{background:#0d1526;color:#6ea8ff}
 .card-tid{font-size:.56rem;color:var(--faint,#5b678a);font-family:var(--mono,monospace);margin-top:.08rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .board-err{color:var(--red,#f87171);padding:.75rem 1rem;font-size:.8rem}
 .board-body{display:flex;flex-direction:row;flex:1;min-height:0;overflow:hidden}
@@ -68,6 +84,7 @@
 .drawer-body-content p{margin:.3rem 0}
 .drawer-body-content code{background:var(--panel,#161b2c);border-radius:3px;padding:.08rem .22rem;font-size:.7rem;font-family:var(--mono,monospace)}
 .board-card.selected{border-color:var(--accent,#6ea8ff)!important;background:var(--panel2,#1c2236)!important}
+.view-empty{color:var(--faint,#5b678a);font-size:.76rem;padding:1.5rem;text-align:center;font-style:italic}
 `;
 
   function injectCSS() {
@@ -120,8 +137,6 @@
     ];
     const edges = [...(board.edges || []), ...(work.edges || [])];
 
-    // title-bearing nodes are threads; first occurrence wins on id collision.
-    // @topic-* threads are an index (former tags), not execution work — hidden by default.
     const seen = new Set();
     const threads = nodes.filter(n => {
       if (!n.attrs || !n.attrs.title) return false;
@@ -140,7 +155,6 @@
     return { threads, byFrom };
   }
 
-  // Lifecycle is derived from facts, not stored status.
   function deriveCol(t, byFrom, tmap) {
     const a = t.attrs || {};
     const es = byFrom[t.id] || [];
@@ -152,12 +166,25 @@
     const deps = es.filter(e => e.pred === 'depends_on');
     if (deps.length && deps.some(e => {
       const d = tmap[e.to];
-      // unknown dep or dep with no outcome/abandoned → still open → we are blocked
       return !d || (!(d.attrs || {}).outcome && !(d.attrs || {}).abandoned);
     })) return 'blocked';
 
     if (a.committed) return 'ready';
     return 'backlog';
+  }
+
+  function todayStr() {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + dd;
+  }
+
+  function getOwner(t, byFrom) {
+    const es = byFrom[t.id] || [];
+    const ownerEdge = es.find(e => e.pred === 'owner');
+    return (ownerEdge ? ownerEdge.to : null) || (t.attrs || {}).owner || null;
   }
 
   // ── claim write ───────────────────────────────────────────────────────────────
@@ -178,7 +205,6 @@
     }).catch(() => {});
   }
 
-  // Returns true if the transition was applied, false if cancelled by user.
   async function applyTransition(t, toCol) {
     const { id, _port: port } = t;
     switch (toCol) {
@@ -204,7 +230,6 @@
         return true;
       }
       case 'backlog':
-        // retract committed; other lifecycle claims need explicit UI to remove
         await retractEdge(port, id, 'committed', 'true');
         return true;
       default:
@@ -234,10 +259,11 @@
   function sp(cls, txt) { const e = mk('span', cls); e.textContent = txt; return e; }
 
   function shorten(s) {
-    return String(s).replace('@agent:', '').replace('@role:', '').slice(0, 11);
+    const clean = String(s).replace('@agent:', '').replace('@role:', '');
+    return clean.length > 18 ? clean.slice(0, 16) + '…' : clean;
   }
 
-  function buildCard(t, byFrom, onClick) {
+  function buildCard(t, byFrom, onClick, extraChips) {
     const a = t.attrs || {};
     const es = byFrom[t.id] || [];
 
@@ -258,7 +284,7 @@
     const chips = mk('div', 'card-chips');
     const ownerEdge = es.find(e => e.pred === 'owner');
     const owner = (ownerEdge ? ownerEdge.to : null) || a.owner;
-    if (owner) chips.append(sp('bchip', '👤 ' + shorten(owner)));
+    if (owner) chips.append(sp('bchip', '\u{1F464} ' + shorten(owner)));
 
     const driverEdge = es.find(e => e.pred === 'driver');
     const driver = (driverEdge ? driverEdge.to : null) || a.driver;
@@ -266,6 +292,10 @@
 
     const est = a.estimate_hours || a.estimate;
     if (est) chips.append(sp('bchip bchip-est', est + 'h'));
+
+    if (extraChips) {
+      for (const ec of extraChips) chips.append(sp('bchip ' + (ec.cls || ''), ec.text));
+    }
 
     if (chips.children.length) card.append(chips);
 
@@ -289,7 +319,6 @@
     htitle.textContent = 'Board';
     const refreshBtn = mk('button', 'board-hdr-btn');
     refreshBtn.textContent = '⟳ Refresh';
-    // topics toggle (header, decoupled from the agent-chip row): @topic-* index threads off by default
     const topicsBtn = mk('button', 'board-hdr-btn' + (showTopics ? ' on' : ''));
     topicsBtn.textContent = showTopics ? '◉ Topics' : '○ Topics';
     topicsBtn.title = 'Show @topic-* index threads (off by default)';
@@ -299,32 +328,36 @@
       topicsBtn.classList.toggle('on', showTopics);
       load();
     });
-    const activeBtn = mk('button', 'board-hdr-btn');
-    activeBtn.textContent = '○ Active';
-    activeBtn.title = 'Show only threads driven by agents that are currently online + working';
-    activeBtn.addEventListener('click', () => {
-      state.showActiveOnly = !state.showActiveOnly;
-      activeBtn.textContent = state.showActiveOnly ? '◉ Active' : '○ Active';
-      activeBtn.classList.toggle('active-on', state.showActiveOnly);
-      applyFilter();
-    });
     const statusEl = sp('board-hdr-status', '');
-    hdr.append(htitle, refreshBtn, topicsBtn, activeBtn, statusEl);
+    hdr.append(htitle, refreshBtn, topicsBtn, statusEl);
     container.append(hdr);
 
-    // owner/driver filter row — hook point for fs-controls
+    // view tabs
+    const tabBar = mk('div', 'board-tabs');
+    const tabEls = {};
+    for (const v of VIEWS) {
+      const tab = mk('div', 'board-tab' + (v.id === 'kanban' ? ' active' : ''));
+      tab.textContent = v.label;
+      tab.dataset.view = v.id;
+      tab.addEventListener('click', () => switchView(v.id));
+      tabBar.append(tab);
+      tabEls[v.id] = tab;
+    }
+    container.append(tabBar);
+
+    // owner/driver filter row (visible in kanban view)
     const filterRow = mk('div', 'board-filter');
     filterRow.append(sp('bfchip-label', 'Agent'));
     container.append(filterRow);
 
-    // columns + detail drawer: flex row fills remaining height
+    // body: columns area + drawer
     const bodyEl = mk('div', 'board-body');
     container.append(bodyEl);
 
     const colsEl = mk('div', 'board-cols');
     bodyEl.append(colsEl);
 
-    // detail drawer (far right) — opens on card click, stays on board
+    // detail drawer
     const drawerEl = mk('div', 'board-drawer');
     const drawerHdr = mk('div', 'drawer-hdr');
     drawerHdr.append(sp('drawer-hdr-label', 'Thread'));
@@ -345,35 +378,12 @@
     drawerEl.append(drawerScroll);
     bodyEl.append(drawerEl);
 
-    const colMap = {};
-    for (const col of COLS) {
-      const colEl = mk('div', 'board-col');
-      const colHdr = mk('div', 'col-hdr');
-      const countEl = sp('col-count', '0');
-      colHdr.append(sp('col-label', col.label), countEl);
-      colEl.append(colHdr);
-      const cardsEl = mk('div', 'col-cards');
-      colEl.append(cardsEl);
+    const state = {
+      threads: [], byFrom: {}, ownerFilter: 'all', selectedId: null,
+      showActiveOnly: false, activeUuids: new Set(), currentView: 'kanban'
+    };
 
-      colEl.addEventListener('dragover', e => { e.preventDefault(); colEl.classList.add('drag-over'); });
-      colEl.addEventListener('dragleave', e => {
-        if (!colEl.contains(e.relatedTarget)) colEl.classList.remove('drag-over');
-      });
-      colEl.addEventListener('drop', async e => {
-        e.preventDefault();
-        colEl.classList.remove('drag-over');
-        const tid = e.dataTransfer.getData('text/plain');
-        const thread = state.threads.find(t => t.id === tid);
-        if (!thread || thread._col === col.id) return;
-        const applied = await applyTransition(thread, col.id);
-        if (applied) load();
-      });
-
-      colMap[col.id] = { colEl, cardsEl, countEl };
-      colsEl.append(colEl);
-    }
-
-    const state = { threads: [], byFrom: {}, ownerFilter: 'all', selectedId: null, showActiveOnly: false, activeUuids: new Set() };
+    // ── drawer ────────────────────────────────────────────────────────────────
 
     function openDrawer(t) {
       const a = t.attrs || {};
@@ -400,6 +410,7 @@
       field('Driver', (driverEdge ? driverEdge.to : null) || a.driver);
       const est = a.estimate_hours || a.estimate;
       field('Estimate', est ? est + 'h' : null);
+      if (a.do_on) field('Do on', a.do_on);
       const deps = es.filter(e => e.pred === 'depends_on').map(e => e.to);
       if (deps.length) field('Depends on', deps.join(', '));
       field('ID', t.id);
@@ -424,35 +435,63 @@
       state.selectedId = null;
     });
 
-    function setFilter(value) {
-      state.ownerFilter = value || 'all';
-      applyFilter();
+    // ── view switching ────────────────────────────────────────────────────────
+
+    function switchView(viewId) {
+      state.currentView = viewId;
+      for (const v of VIEWS) tabEls[v.id].classList.toggle('active', v.id === viewId);
+      filterRow.style.display = viewId === 'kanban' ? '' : 'none';
+      renderCurrentView();
     }
 
-    function buildFilterChips(agents) {
-      // keep label chip, replace the rest
-      while (filterRow.children.length > 1) filterRow.removeChild(filterRow.lastChild);
-
-      const all = ['all', ...agents];
-      for (const agent of all) {
-        const chip = mk('span', 'bfchip' + (state.ownerFilter === agent ? ' active' : ''));
-        chip.textContent = agent === 'all' ? 'All' : shorten(agent);
-        chip.title = agent === 'all' ? 'Show all' : agent;
-        chip.addEventListener('click', () => setFilter(agent));
-        filterRow.append(chip);
+    function renderCurrentView() {
+      switch (state.currentView) {
+        case 'kanban': renderKanban(); break;
+        case 'active': renderActiveView(); break;
+        case 'ready':  renderReadyView(); break;
+        case 'today':  renderTodayView(); break;
+        case 'owner':  renderOwnerView(); break;
       }
     }
 
-    function applyFilter() {
-      // update chip active state
-      for (const chip of filterRow.querySelectorAll('.bfchip')) {
-        const v = chip.title === 'Show all' ? 'all' : chip.title;
-        chip.classList.toggle('active', v === state.ownerFilter);
+    // ── kanban view (original) ────────────────────────────────────────────────
+
+    let kanbanColMap = null;
+
+    function ensureKanbanCols() {
+      colsEl.innerHTML = '';
+      const colMap = {};
+      for (const col of COLS) {
+        const colEl = mk('div', 'board-col');
+        const colHdr = mk('div', 'col-hdr');
+        const countEl = sp('col-count', '0');
+        colHdr.append(sp('col-label', col.label), countEl);
+        colEl.append(colHdr);
+        const cardsEl = mk('div', 'col-cards');
+        colEl.append(cardsEl);
+
+        colEl.addEventListener('dragover', e => { e.preventDefault(); colEl.classList.add('drag-over'); });
+        colEl.addEventListener('dragleave', e => {
+          if (!colEl.contains(e.relatedTarget)) colEl.classList.remove('drag-over');
+        });
+        colEl.addEventListener('drop', async e => {
+          e.preventDefault();
+          colEl.classList.remove('drag-over');
+          const tid = e.dataTransfer.getData('text/plain');
+          const thread = state.threads.find(t => t.id === tid);
+          if (!thread || thread._col === col.id) return;
+          const applied = await applyTransition(thread, col.id);
+          if (applied) load();
+        });
+
+        colMap[col.id] = { colEl, cardsEl, countEl };
+        colsEl.append(colEl);
       }
-      renderColumns();
+      kanbanColMap = colMap;
     }
 
-    function renderColumns() {
+    function renderKanban() {
+      ensureKanbanCols();
       const { threads, byFrom, ownerFilter, showActiveOnly, activeUuids } = state;
       let visible = ownerFilter === 'all'
         ? threads
@@ -473,7 +512,7 @@
       for (const t of visible) (buckets[t._col] || buckets.backlog).push(t);
 
       for (const col of COLS) {
-        const { cardsEl, countEl } = colMap[col.id];
+        const { cardsEl, countEl } = kanbanColMap[col.id];
         cardsEl.innerHTML = '';
         countEl.textContent = buckets[col.id].length;
         for (const t of buckets[col.id]) {
@@ -486,25 +525,203 @@
       statusEl.textContent = visible.length + '/' + threads.length + ' threads' + suffix;
     }
 
+    // ── active view ───────────────────────────────────────────────────────────
+
+    function renderActiveView() {
+      const { threads, byFrom } = state;
+      const active = threads.filter(t => t._col === 'active');
+      renderSingleColumn('Active', active, byFrom);
+      statusEl.textContent = active.length + ' active thread' + (active.length !== 1 ? 's' : '');
+    }
+
+    // ── ready view ────────────────────────────────────────────────────────────
+
+    function renderReadyView() {
+      const { threads, byFrom } = state;
+      const ready = threads.filter(t => t._col === 'ready');
+      const blocked = threads.filter(t => t._col === 'blocked');
+
+      colsEl.innerHTML = '';
+      if (ready.length === 0 && blocked.length === 0) {
+        const empty = mk('div', 'view-empty');
+        empty.textContent = 'Nothing ready or blocked.';
+        colsEl.append(empty);
+        statusEl.textContent = '0 threads';
+        return;
+      }
+
+      if (ready.length) {
+        const col = buildViewColumn('Ready', ready, byFrom);
+        colsEl.append(col);
+      }
+      if (blocked.length) {
+        const col = buildViewColumn('Blocked', blocked, byFrom, t => {
+          const deps = (byFrom[t.id] || []).filter(e => e.pred === 'depends_on');
+          return deps.length ? [{ text: '→ ' + deps.map(e => e.to.replace(/^@/, '').slice(0, 16)).join(', '), cls: 'bchip-overdue' }] : [];
+        });
+        colsEl.append(col);
+      }
+      statusEl.textContent = ready.length + ' ready, ' + blocked.length + ' blocked';
+    }
+
+    // ── today view ────────────────────────────────────────────────────────────
+
+    function renderTodayView() {
+      const { threads, byFrom } = state;
+      const today = todayStr();
+
+      const withDate = threads.filter(t => {
+        const a = t.attrs || {};
+        if (a.outcome || a.abandoned) return false;
+        return a.do_on && a.do_on <= today;
+      });
+
+      withDate.sort((a, b) => (a.attrs.do_on || '').localeCompare(b.attrs.do_on || ''));
+
+      const overdue = withDate.filter(t => t.attrs.do_on < today);
+      const due = withDate.filter(t => t.attrs.do_on === today);
+
+      colsEl.innerHTML = '';
+      if (withDate.length === 0) {
+        const empty = mk('div', 'view-empty');
+        empty.textContent = 'Nothing due today or overdue.';
+        colsEl.append(empty);
+        statusEl.textContent = '0 threads';
+        return;
+      }
+
+      if (overdue.length) {
+        const col = buildViewColumn('Overdue', overdue, byFrom, t => [
+          { text: t.attrs.do_on, cls: 'bchip-overdue' },
+          { text: t._col, cls: 'bchip-lifecycle' }
+        ]);
+        colsEl.append(col);
+      }
+      if (due.length) {
+        const col = buildViewColumn('Today', due, byFrom, t => [
+          { text: t._col, cls: 'bchip-lifecycle' }
+        ]);
+        colsEl.append(col);
+      }
+      statusEl.textContent = overdue.length + ' overdue, ' + due.length + ' due today';
+    }
+
+    // ── by-owner view ─────────────────────────────────────────────────────────
+
+    function renderOwnerView() {
+      const { threads, byFrom } = state;
+      const live = threads.filter(t => t._col !== 'done' && t._col !== 'abandoned');
+
+      const groups = {};
+      for (const t of live) {
+        const owner = getOwner(t, byFrom) || '(unowned)';
+        (groups[owner] = groups[owner] || []).push(t);
+      }
+
+      const sorted = Object.keys(groups).sort((a, b) => {
+        if (a === '(unowned)') return 1;
+        if (b === '(unowned)') return -1;
+        return groups[b].length - groups[a].length;
+      });
+
+      colsEl.innerHTML = '';
+      if (sorted.length === 0) {
+        const empty = mk('div', 'view-empty');
+        empty.textContent = 'No open threads.';
+        colsEl.append(empty);
+        statusEl.textContent = '0 threads';
+        return;
+      }
+
+      for (const owner of sorted) {
+        const col = buildViewColumn(shorten(owner), groups[owner], byFrom, t => [
+          { text: t._col, cls: 'bchip-lifecycle' }
+        ]);
+        colsEl.append(col);
+      }
+      statusEl.textContent = live.length + ' open across ' + sorted.length + ' owner' + (sorted.length !== 1 ? 's' : '');
+    }
+
+    // ── shared view helpers ───────────────────────────────────────────────────
+
+    function renderSingleColumn(label, threads, byFrom) {
+      colsEl.innerHTML = '';
+      if (threads.length === 0) {
+        const empty = mk('div', 'view-empty');
+        empty.textContent = 'No ' + label.toLowerCase() + ' threads.';
+        colsEl.append(empty);
+        return;
+      }
+      const col = buildViewColumn(label, threads, byFrom);
+      colsEl.append(col);
+    }
+
+    function buildViewColumn(label, threads, byFrom, chipsFn) {
+      const colEl = mk('div', 'board-col view-col');
+      const colHdr = mk('div', 'col-hdr');
+      const countEl = sp('col-count', String(threads.length));
+      colHdr.append(sp('col-label', label), countEl);
+      colEl.append(colHdr);
+      const cardsEl = mk('div', 'col-cards');
+
+      for (const t of threads) {
+        const extra = chipsFn ? chipsFn(t) : [];
+        const card = buildCard(t, byFrom, openDrawer, extra);
+        if (t.id === state.selectedId) card.classList.add('selected');
+        cardsEl.append(card);
+      }
+
+      colEl.append(cardsEl);
+      return colEl;
+    }
+
+    // ── filter chips (kanban only) ────────────────────────────────────────────
+
+    function setFilter(value) {
+      state.ownerFilter = value || 'all';
+      applyFilter();
+    }
+
+    function buildFilterChips(agents) {
+      while (filterRow.children.length > 1) filterRow.removeChild(filterRow.lastChild);
+
+      const all = ['all', ...agents];
+      for (const agent of all) {
+        const chip = mk('span', 'bfchip' + (state.ownerFilter === agent ? ' active' : ''));
+        chip.textContent = agent === 'all' ? 'All' : shorten(agent);
+        chip.title = agent === 'all' ? 'Show all' : agent;
+        chip.addEventListener('click', () => setFilter(agent));
+        filterRow.append(chip);
+      }
+    }
+
+    function applyFilter() {
+      for (const chip of filterRow.querySelectorAll('.bfchip')) {
+        const v = chip.title === 'Show all' ? 'all' : chip.title;
+        chip.classList.toggle('active', v === state.ownerFilter);
+      }
+      renderCurrentView();
+    }
+
+    // ── data load + render ────────────────────────────────────────────────────
+
     function render({ threads, byFrom, presence }) {
       state.threads = threads;
       state.byFrom = byFrom;
       state.activeUuids = buildActiveSet(presence);
 
-      // collect unique owners+drivers across all threads
       const agentSet = new Set();
       for (const t of threads) {
         for (const a of threadAgents(t, byFrom)) agentSet.add(a);
       }
       const agents = [...agentSet].sort();
 
-      // reset filter if currently-selected agent disappeared
       if (state.ownerFilter !== 'all' && !agentSet.has(state.ownerFilter)) {
         state.ownerFilter = 'all';
       }
 
       buildFilterChips(agents);
-      renderColumns();
+      renderCurrentView();
     }
 
     async function load() {
@@ -521,7 +738,6 @@
       }
     }
 
-    // hook for fs-controls toolbar: window.setBoardOwnerFilter('all' | '<agent-value>')
     window.setBoardOwnerFilter = setFilter;
 
     refreshBtn.addEventListener('click', load);
