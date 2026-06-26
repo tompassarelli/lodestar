@@ -3,10 +3,10 @@
 ;; LIVE EXTERNAL FEED — the thread store mirrors a flat-rows projection of the bridge's
 ;; /graph endpoints (board :7977 + work :7978). The bridge serves /graph as {nodes,edges}
 ;; with DERIVED lifecycle (a client concern: abandoned/outcome/committed attrs + driver/
-;; depends_on edges → column); eddy's :feed loader wants a flat JSON array keyed by an
-;; identity field. So the host shell (board-eddy.html) installs a fetch shim on this URL
+;; depends_on edges → column); wake's :feed loader wants a flat JSON array keyed by an
+;; identity field. So the host shell (board-wake.html) installs a fetch shim on this URL
 ;; that pulls both graphs, derives `lifecycle`, and returns flat thread rows — the same
-;; mount-point/host-shell seam fleet.eddy uses, just doing the graph→rows projection that
+;; mount-point/host-shell seam fleet.wake uses, just doing the graph→rows projection that
 ;; the fleet's /presence does server-side. Field names below mirror the projected keys.
 (persist :feed "http://localhost:8088/board-threads")
 
@@ -29,7 +29,7 @@
   (body : String))
 
 ;; thread-card — one row in the entity list (host-shell kanban also renders a card variant
-;; off the same store; this is the eddy-native list-cell + click-to-select detail).
+;; off the same store; this is the wake-native list-cell + click-to-select detail).
 (component thread-card
   :props [id title lifecycle owner driver estimate]
   (div :class "px-3 py-2 border-b border-border"
@@ -75,10 +75,10 @@
   :add-form [id title] :title "Board — threads"
   :select thread-detail)
 
-;; ESCAPE-HATCH PANEL — the 6-column lifecycle KANBAN + drag-to-edge. eddy's frontend view
+;; ESCAPE-HATCH PANEL — the 6-column lifecycle KANBAN + drag-to-edge. wake's frontend view
 ;; surface is a single list-with-detail (its :filters are server-mode only, and it has no
 ;; multi-column layout or drag-and-drop primitive), so the kanban columns and the
 ;; drag→POST /edge claim-write live in a host-shell mount that reads the SAME thread store
-;; (window.eddy.stores.threads) + selection bus. The shell defines
-;; window.framescope.mountKanban({ el, eddy }); eddy carves the container and hands it the bus.
+;; (window.wake.stores.threads) + selection bus. The shell defines
+;; window.framescope.mountKanban({ el, wake }); wake carves the container and hands it the bus.
 (panel board-kanban :mount "framescope.mountKanban")

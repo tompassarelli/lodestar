@@ -2,9 +2,9 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Board — eddy dogfood (framescope)</title>
+  <title>Board — wake dogfood (framescope)</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/geist@1/index.min.css">
-  <link rel="stylesheet" href="board-eddy-dist.css">
+  <link rel="stylesheet" href="board-wake-dist.css">
   <style>
     html, body { height: 100%; margin: 0; background: var(--background, #0c0f17); }
     #app { height: 100vh; }
@@ -38,20 +38,20 @@
   <div id="app"></div>
 
   <!-- ── HOST-SHELL SEAM (stands in for framescope's cockpit shell) ──────────────────────
-       Two host-shell concerns the eddy view surface can't express, both wired to the SAME
-       eddy thread store + selection bus:
+       Two host-shell concerns the wake view surface can't express, both wired to the SAME
+       wake thread store + selection bus:
 
-       (1) FEED PROJECTION — eddy's :feed wants a flat JSON array keyed by an identity field;
+       (1) FEED PROJECTION — wake's :feed wants a flat JSON array keyed by an identity field;
            the bridge's /graph returns {nodes,edges} with DERIVED lifecycle. We intercept the
            feed URL (/board-threads) with a fetch shim that pulls both graphs (board :7977 +
            work :7978), derives the lifecycle column, and returns flat thread rows. (The
            fleet's /presence does this server-side; we can't add a bridge route, so we project
            client-side — same seam, different side of the wire.)
 
-       (2) KANBAN + DRAG-TO-EDGE — eddy frontend views are single-list-with-detail (its
+       (2) KANBAN + DRAG-TO-EDGE — wake frontend views are single-list-with-detail (its
            :filters are server-mode only; no multi-column layout, no DnD primitive). So the
            6 lifecycle columns and the drag→POST /edge claim-write live in mountKanban, reading
-           window.eddy.stores.threads + eddy.selection. Drop on a column applies the lifecycle
+           window.wake.stores.threads + wake.selection. Drop on a column applies the lifecycle
            transition via the bridge's existing /edge endpoint, then the live feed re-pulls. -->
   <script>
     window.framescope = window.framescope || {};
@@ -127,7 +127,7 @@
       });
     }
 
-    // fetch shim: intercept the eddy feed URL, serve the projected rows. Everything else
+    // fetch shim: intercept the wake feed URL, serve the projected rows. Everything else
     // (including the /graph and /edge calls this shim itself issues) passes through.
     const _realFetch = window.fetch.bind(window);
     window.fetch = function (input, init) {
@@ -139,7 +139,7 @@
       return _realFetch(input, init);
     };
 
-    // ── (2) kanban + drag-to-edge mount, sharing window.eddy.stores.threads + selection ──
+    // ── (2) kanban + drag-to-edge mount, sharing window.wake.stores.threads + selection ──
     function postEdge(port, from, pred, to) {
       return _realFetch('/edge', {
         method: 'POST',
@@ -173,8 +173,8 @@
       }
     }
 
-    window.framescope.mountKanban = ({ el, eddy }) => {
-      const store = eddy && eddy.stores && eddy.stores.threads;
+    window.framescope.mountKanban = ({ el, wake }) => {
+      const store = wake && wake.stores && wake.stores.threads;
       el.innerHTML = '';
       const title = document.createElement('div');
       title.className = 'fk-title';
@@ -207,7 +207,7 @@
           const row = rows.find(r => r.id === id);
           if (!row || row.lifecycle === col.id) return;
           await applyTransition(row, col.id);
-          // the eddy feed's /live WS + 15s backstop re-pull the projection after the claim write
+          // the wake feed's /live WS + 15s backstop re-pull the projection after the claim write
         });
 
         colMap[col.id] = { cards, cnt };
@@ -216,7 +216,7 @@
 
       function render() {
         const rows = store ? store.all() : [];
-        const sel = eddy && eddy.selection ? eddy.selection.get() : null;
+        const sel = wake && wake.selection ? wake.selection.get() : null;
         const buckets = {};
         for (const c of COLS) buckets[c.id] = [];
         for (const r of rows) (buckets[r.lifecycle] || buckets.backlog).push(r);
@@ -235,17 +235,17 @@
             if (meta) { const m = document.createElement('div'); m.className = 'fk-card-meta'; m.textContent = meta; card.appendChild(m); }
             card.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', r.id); card.classList.add('dragging'); });
             card.addEventListener('dragend', () => card.classList.remove('dragging'));
-            card.addEventListener('click', () => { if (eddy.selection) eddy.selection.set(r.id); render(); });
+            card.addEventListener('click', () => { if (wake.selection) wake.selection.set(r.id); render(); });
             cards.appendChild(card);
           }
         }
       }
 
       render();
-      if (eddy && eddy.feed) eddy.feed.onUpdate(() => render());
+      if (wake && wake.feed) wake.feed.onUpdate(() => render());
     };
   </script>
 
-  <script src="board-eddy.js"></script>
+  <script src="board-wake.js"></script>
 </body>
 </html>
