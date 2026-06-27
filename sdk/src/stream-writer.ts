@@ -1,7 +1,9 @@
 import { appendFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
-const FLEET_DIR = join(process.env.HOME ?? "", "code/fleet-data");
+const STREAM_DIR =
+  process.env.LODESTAR_STREAM_DIR ??
+  join(process.env.HOME ?? "", "code/fleet-data");
 
 // Write SDK messages to .stream.jsonl in the same format the lodestar web tails.
 // This bridges SDK dispatch into the existing lodestar web without changing the bridge.
@@ -9,7 +11,7 @@ export class StreamWriter {
   private path: string;
 
   constructor(agentId: string) {
-    this.path = join(FLEET_DIR, `agent-${agentId}.stream.jsonl`);
+    this.path = join(STREAM_DIR, `agent-${agentId}.stream.jsonl`);
     writeFileSync(this.path, "");
   }
 

@@ -26,7 +26,5 @@ Agent coordination uses the **TypeScript SDK** (`~/code/lodestar/sdk/`), not bas
 - **Never `lodestar export` under concurrent work** (`import` is idempotent/safe). The log is the source of truth; thread `.md` files are a regenerable projection — `doctor` distinguishes benign log-ahead lag from a real file-ahead conflict.
 
 ## Pointers
-- `~/code/fleet-data/RUNBOOK.md` — fleet operating runbook (spawn/assign/steer/supervise).
 - lodestar thread `2026-06-23-132319` — CNF purity + lodestar-as-client architecture.
-- `~/code/fleet-consolidation-runbook.md` — engine/app/data seam-cut; remaining: the `:7978` daemon swap onto canonical-fram-with-lease (human/sudo step).
 - `~/code/fram` — the engine (claim model, coordinator, lease primitive).

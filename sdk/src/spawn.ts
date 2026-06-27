@@ -1,12 +1,6 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { StreamWriter } from "./stream-writer";
 
-// spawn.ts — SDK replacement for ~/code/fleet-data/spawn-agent.sh + lodestar-agent.sh
-// Instead of: bash → bb presence-cli → bb lodestar-listen → claude -p → .stream.jsonl
-// Now:        bun spawn.ts → query() → .stream.jsonl
-//
-// The lodestar daemons (:7977/:7978) are untouched — this replaces only the agent
-// process, not the coordination layer.
 
 interface SpawnOptions {
   prompt: string;

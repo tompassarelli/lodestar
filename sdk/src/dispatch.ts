@@ -1,5 +1,5 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import { getThreadClaims } from "./lodestar-client";
+import { getThreadClaims, getChildren } from "./lodestar-client";
 import { derivePosture, buildPrompt } from "./posture";
 import { StreamWriter } from "./stream-writer";
 
@@ -19,7 +19,6 @@ export async function dispatch(threadId: string): Promise<DispatchResult> {
     throw new Error(`Thread @${threadId} not found or has no claims`);
   }
 
-  const { getChildren } = await import("./lodestar-client");
   const children = getChildren(threadId);
   const hasChildren = children.length > 0;
   const posture = derivePosture(claims, hasChildren);
