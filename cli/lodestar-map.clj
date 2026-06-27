@@ -77,7 +77,7 @@
 (let [[port verb & args] *command-line-args*
       port (Integer/parseInt port)
       home (System/getenv "HOME")
-      fleet (str home "/code/agent-data")
+      agent-data (str home "/code/agent-data")
       scratch (str home "/code/lodestar/cli")]
   (case verb
 
@@ -106,7 +106,7 @@
             ;; batch-tagged task + the exact DONE-report line it must run on completion.
             (sh "bb" (str scratch "/presence-cli.clj") (str port) "define-role" slug "exclusive"
                 (str "fan-out worker " i "/" n " of " id))
-            (sh "bash" (str fleet "/spawn-agent.sh") slug
+            (sh "bash" (str agent-data "/spawn-agent.sh") slug
                 :env (assoc (into {} (System/getenv))
                             "AGENT_LIFECYCLE" "ephemeral" "FLEET_PORT" (str port)))
             (sh "bb" (str scratch "/msg-cli.clj") (str port) "send" "fleet-map" slug

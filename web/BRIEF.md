@@ -87,13 +87,12 @@ saved views, nicer physics, multi-graph compare.
 
 ## Rules
 - Standalone repo `~/code/lodestar-web`. Scoped commits (`git add <files>`, never `-A`).
-- If the work fans out, you may spawn an ephemeral helper (`~/code/agent-data/spawn-agent.sh
-  lodestar-web-<slug>-1`, inclusive role) — but start lean.
+- If the work fans out, spawn via SDK (`/spawn` or `/dispatch` on the bridge) — not bash scripts.
 - Make it beautiful. This is meant to be FUN.
 
 ---
 
-## *** V1 IS NOW THE FLEET OBSERVATORY (re-prioritized — build THIS first) ***
+## *** V1 IS THE AGENT PRESENCE VIEW (re-prioritized — build THIS first) ***
 
 Tom's #1 want is to WATCH and STEER his live agents. The agent pool is itself a Fram graph on `:7978`
 (agents, roles, focus, messages, cost), so the lodestar web is the SAME app pointed at that graph — plus

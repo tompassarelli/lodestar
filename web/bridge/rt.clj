@@ -197,7 +197,7 @@
 ;; ---- live commit feed: fan out to ALL daemons, relay each commit as JSON ----
 ;; Port list mirrors GRAPHS in bridge.bclj (the federation config); kept here too
 ;; because this WS plumbing is pure host fan-out.
-(def LIVE-GRAPHS [["fleet" 7978] ["code" 7979] ["board" 7977] ["attention" 7980]])
+(def LIVE-GRAPHS [["agents" 7978] ["code" 7979] ["board" 7977] ["attention" 7980]])
 (defn- ref-obj? [o]
   (and (string? o) (str/starts-with? o "@") (not (re-find #"\s" o))))
 
