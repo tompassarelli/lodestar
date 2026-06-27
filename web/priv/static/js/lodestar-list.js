@@ -223,11 +223,32 @@
 
   function liveRefresh(root) {
     let ws;
+    // Coalesce a burst of /live frames into ONE refetch. A single commit can
+    // emit several delta frames (one per claim); un-debounced, each would fire
+    // a full /api/list refetch+render. The first frame arms a 50ms timer; every
+    // frame arriving while it's pending is absorbed, so an N-claim commit
+    // collapses to exactly one refetch+render (now ~35ms on the JSON wire).
+    let timer = null;
+    const scheduleRender = () => {
+      if (timer) return;
+      timer = setTimeout(() => { timer = null; render(root); }, 50);
+    };
     const open = () => {
       try {
         const proto = location.protocol === "https:" ? "wss" : "ws";
         ws = new WebSocket(`${proto}://${location.host}/api/live?graph=board`);
-        ws.onmessage = () => render(root);
+        ws.onmessage = (ev) => {
+          // /live carries per-claim delta frames {t:"delta",graph,op,l,p,r}
+          // (a multi-claim commit emits one each) plus the legacy commit/refresh
+          // ping. A delta can't drive a per-row patch — it holds the changed
+          // triple, not the thread's derived lifecycle/badges — so delta and
+          // ping alike route to the same coalesced refetch.
+          let frame = null;
+          try { frame = JSON.parse(ev.data); } catch (_) {}
+          // Ignore deltas for another graph; legacy pings still refresh.
+          if (frame && frame.t === "delta" && frame.graph && frame.graph !== "board") return;
+          scheduleRender();
+        };
         ws.onclose = () => setTimeout(open, 2000);
       } catch (_) { setTimeout(open, 2000); }
     };

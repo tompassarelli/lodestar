@@ -82,6 +82,44 @@ defmodule Lodestar.Fram do
     _ -> nil
   end
 
+  @doc """
+  Like `query/2`, but asks the daemon to reply in JSON (`:fmt :json`) and decodes
+  with Jason instead of eden — Jason is dramatically faster on the large reads.
+
+  The op is a hand-built EDN string; ` :fmt :json` is spliced in before the op
+  map's closing brace. A new daemon honors `:fmt` and returns
+  `{"ok":[["s","p","o"],...]}`; we decode that with `Jason.decode!(keys: :atoms)`
+  so the result matches `query/2`'s shape (atom keys, plain lists — no %Array{}).
+
+  Fallback: an older daemon ignores the unknown `:fmt` key and still returns EDN.
+  EDN keyword keys (`:ok`) aren't valid JSON, so `Jason.decode!` raises; we then
+  decode the same line through the eden path. One call therefore works against
+  BOTH old and new daemons.
+  """
+  def json_query(port, edn_op) do
+    json_op = String.replace_suffix(edn_op, "}", " :fmt :json}")
+    opts = [:binary, active: false, packet: :line, recbuf: @recbuf, buffer: @recbuf]
+
+    with {:ok, sock} <- :gen_tcp.connect(@host, port, opts, @timeout),
+         :ok <- :gen_tcp.send(sock, json_op <> "\n"),
+         {:ok, line} <- :gen_tcp.recv(sock, 0, @timeout) do
+      :gen_tcp.close(sock)
+      decode_json_or_edn(line)
+    else
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  # New daemon → JSON (fast, string keys → atomized to match query/2). Old daemon
+  # ignored :fmt → EDN → Jason raises → fall back to eden + normalize.
+  defp decode_json_or_edn(line) do
+    Jason.decode!(line, keys: :atoms)
+  rescue
+    _ -> line |> Eden.decode!() |> normalize()
+  end
+
   # eden returns EDN vectors as %Array{}; convert recursively to plain lists.
   # Maps recurse into values; everything else (atoms, strings, numbers) passes through.
   defp normalize(%Array{} = a), do: a |> Array.to_list() |> Enum.map(&normalize/1)
@@ -143,9 +181,13 @@ defmodule Lodestar.Fram do
     end
   end
 
-  @doc "Every [s, p, o] triple in a daemon's graph."
+  @doc """
+  Every [s, p, o] triple in a daemon's graph. This is the 1.67MB hot read, so it
+  takes the JSON path (`json_query/2` → Jason) and transparently falls back to the
+  EDN decoder against older daemons that ignore `:fmt`.
+  """
   def all_triples(port) do
-    case query(port, @all_triples_op) do
+    case json_query(port, @all_triples_op) do
       %{ok: rows} when is_list(rows) -> Enum.map(rows, fn [s, p, o] -> [to_string(s), to_string(p), to_string(o)] end)
       _ -> []
     end

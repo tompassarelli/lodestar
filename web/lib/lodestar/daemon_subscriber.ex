@@ -36,9 +36,13 @@ defmodule Lodestar.DaemonSubscriber do
     :inet.setopts(sock, active: :once)
     if String.contains?(line, ":commit") do
       # coarse + robust: any commit on this daemon = "this graph changed".
-      # No EDN parse on the hot path; clients re-fetch the affected view.
+      # Clients can re-fetch the affected view off this alone (back-compat).
       # Raw PubSub drives the wake /live WebSocket feed (framework-agnostic edge).
       Phoenix.PubSub.broadcast(Lodestar.PubSub, "wakefeed", {:commit, state.graph})
+      # Best-effort: decode the per-claim delta the daemon already emits and
+      # broadcast it too, so clients can patch in place instead of re-fetching.
+      # A malformed/partial line leaves the coarse path above untouched.
+      broadcast_delta(line, state.graph)
     end
 
     {:noreply, state}
@@ -47,6 +51,26 @@ defmodule Lodestar.DaemonSubscriber do
   def handle_info({:tcp_closed, _sock}, state), do: {:noreply, schedule_reconnect(state)}
   def handle_info({:tcp_error, _sock, _reason}, state), do: {:noreply, schedule_reconnect(state)}
   def handle_info(_other, state), do: {:noreply, state}
+
+  # EDN-decode the commit line — {:event :commit :version V :op "assert"|"retract"
+  # :l <subj> :p <pred> :r <obj>} — and emit a {:delta, graph, %{op,l,p,r}} on the
+  # same topic. Eden.decode! raises on a malformed/empty line; any failure (or a
+  # commit shape missing the claim fields) silently falls back to the coarse path.
+  defp broadcast_delta(line, graph) do
+    case Eden.decode!(line) do
+      %{op: op, l: l, p: p, r: r} ->
+        Phoenix.PubSub.broadcast(
+          Lodestar.PubSub,
+          "wakefeed",
+          {:delta, graph, %{op: op, l: l, p: p, r: r}}
+        )
+
+      _ ->
+        :ok
+    end
+  rescue
+    _ -> :ok
+  end
 
   defp connect(state) do
     opts = [:binary, active: :once, packet: :line, recbuf: 1_000_000]

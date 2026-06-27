@@ -20,7 +20,17 @@ defmodule LodestarWeb.LiveFeed do
   def handle_in(_frame, state), do: {:ok, state}
 
   @impl true
+  # Coarse commit frame: bare graph name as text (back-compat — wake re-fetches).
   def handle_info({:commit, graph}, state), do: {:push, {:text, graph}, state}
+
+  # Per-claim delta frame: JSON so the client can patch in place without re-fetch.
+  def handle_info({:delta, graph, d}, state) do
+    frame =
+      Jason.encode!(%{t: "delta", graph: graph, op: d.op, l: d.l, p: d.p, r: d.r})
+
+    {:push, {:text, frame}, state}
+  end
+
   def handle_info(_other, state), do: {:ok, state}
 
   @impl true
