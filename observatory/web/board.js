@@ -567,7 +567,7 @@
         cardsEl.innerHTML = '';
         countEl.textContent = buckets[col.id].length;
         for (const t of buckets[col.id]) {
-          const card = buildCard(t, byFrom, openDrawer);
+          const card = buildCard(t, byFrom, openDrawer, null, state.presenceByUuid);
           if (t.id === state.selectedId) card.classList.add('selected');
           cardsEl.append(card);
         }
@@ -717,7 +717,7 @@
 
       for (const t of threads) {
         const extra = chipsFn ? chipsFn(t) : [];
-        const card = buildCard(t, byFrom, openDrawer, extra);
+        const card = buildCard(t, byFrom, openDrawer, extra, state.presenceByUuid);
         if (t.id === state.selectedId) card.classList.add('selected');
         cardsEl.append(card);
       }
