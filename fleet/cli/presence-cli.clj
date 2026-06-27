@@ -15,7 +15,8 @@
 ;;   bb presence-cli.clj <port> task     <handle> "<task>"
 ;;   bb presence-cli.clj <port> presence                             ; projection (replaces ls presence/ + age math)
 ;;   bb presence-cli.clj <port> slackers [minutes]                   ; derived: online + holds no work-lease
-(require '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str])
+(require '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str]
+         '[cheshire.core :as json])
 
 (def TTL 600000)          ; 10min lease; renew every ~3min
 (def LEASE-PRED "lease")
@@ -182,6 +183,16 @@
       (assert! port re "cost_usd" (or c "0"))
       (assert! port re "ended_at" (str (java.time.Instant/now)))
       (prn {:recorded re :agent h :cost_usd c}))
+
+    "runmeta"                               ; <uuid> <session_id> <json>  — full per-run telemetry tuple
+    (let [[h sid json-str] args
+          re (str "@run:" sid)
+          m (json/parse-string json-str true)]
+      (assert! port re "agent" h)
+      (assert! port re "ended_at" (str (java.time.Instant/now)))
+      (doseq [[k v] m :when (some? v)]
+        (assert! port re (name k) (str v)))
+      (prn {:recorded re :agent h :fields (count m)}))
 
     ;; --- subscriptions: thread-watches as claims (consumed by fleet-listen.clj) ---
     ;; subject = the agent's self node @<handle> (its self-reference channel is implicit; this
