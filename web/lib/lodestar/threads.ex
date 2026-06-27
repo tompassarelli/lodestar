@@ -30,6 +30,77 @@ defmodule Lodestar.Threads do
     %{nodes: cards, edges: kedges}
   end
 
+  @doc """
+  Focused subgraph around `focus_id` — same JSON shape as graph/0 but filtered to
+  the connected component reachable from the focus via depends_on/part_of edges in
+  BOTH directions (ancestors + descendants), plus the edges among that node set.
+  Bypasses the open/frontier/max_nodes scoping graph/0 applies: the point of focus
+  is to show one thread's full local context, including done/abandoned neighbors.
+  """
+  def focused(focus_id, port \\ nil) do
+    focus = if String.starts_with?(focus_id, "@"), do: focus_id, else: "@" <> focus_id
+    port = port || Fram.board_port()
+    {node_attrs, edges} = fold(Fram.all_triples(port))
+
+    titled = for {id, attrs} <- node_attrs, Map.get(attrs, "title", "") != "", into: %{}, do: {id, attrs}
+    by_from = Enum.group_by(edges, & &1.from)
+    online = Lodestar.Presence.online_refs()
+
+    dedges =
+      edges
+      |> Enum.filter(&(&1.pred in @dag_preds))
+      |> Enum.filter(&(Map.has_key?(titled, &1.from) and Map.has_key?(titled, &1.to)))
+
+    keep = reachable(focus, dedges)
+
+    nodes =
+      keep
+      |> Enum.filter(&Map.has_key?(titled, &1))
+      |> Enum.map(fn id ->
+        attrs = Map.get(titled, id, %{})
+
+        %{
+          id: id,
+          label: attrs |> Map.get("title", id) |> trunc_str(46),
+          status: derive_status(attrs, Map.get(by_from, id, []), node_attrs, online),
+          driver: driver_of(by_from, id)
+        }
+      end)
+
+    kedges =
+      dedges
+      |> Enum.filter(&(MapSet.member?(keep, &1.from) and MapSet.member?(keep, &1.to)))
+      |> Enum.map(&%{source: &1.from, target: &1.to, kind: &1.pred})
+
+    %{nodes: nodes, edges: kedges}
+  end
+
+  # Undirected BFS over the dag edges from `start` — both edge directions are
+  # walked so we collect ancestors AND descendants. Returns the connected node set.
+  defp reachable(start, dedges) do
+    adj =
+      Enum.reduce(dedges, %{}, fn e, acc ->
+        acc
+        |> Map.update(e.from, [e.to], &[e.to | &1])
+        |> Map.update(e.to, [e.from], &[e.from | &1])
+      end)
+
+    bfs([start], MapSet.new([start]), adj)
+  end
+
+  defp bfs([], seen, _adj), do: seen
+
+  defp bfs([id | rest], seen, adj) do
+    {seen, queue} =
+      adj
+      |> Map.get(id, [])
+      |> Enum.reduce({seen, rest}, fn n, {seen, queue} ->
+        if MapSet.member?(seen, n), do: {seen, queue}, else: {MapSet.put(seen, n), [n | queue]}
+      end)
+
+    bfs(queue, seen, adj)
+  end
+
   @doc "%{lanes: [%{key,label,cards: [%{id,label,status,driver}]}]} — same scoped threads, grouped by status."
   def board(port \\ nil) do
     %{cards: cards} = scoped(port)

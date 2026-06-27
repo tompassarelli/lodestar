@@ -9,8 +9,11 @@
   };
   const STATUS = { active: EF.star, blocked: EF.warn, ready: EF.accent, backlog: EF.muted };
 
-  function elements(d) {
-    const nodes = (d.nodes || []).map((n) => ({ data: { id: n.id, label: n.label, status: n.status } }));
+  // focus = the @id of the thread the view is centered on (or null). Tagged onto
+  // its node so the stylesheet can give it an accent border.
+  function elements(d, focus) {
+    const fnorm = focus ? (focus[0] === "@" ? focus : "@" + focus) : null;
+    const nodes = (d.nodes || []).map((n) => ({ data: { id: n.id, label: n.label, status: n.status, focus: fnorm && n.id === fnorm ? "1" : "0" } }));
     const edges = (d.edges || []).map((e, i) => ({ data: { id: "e" + i, source: e.source, target: e.target, kind: e.kind } }));
     return nodes.concat(edges);
   }
@@ -26,20 +29,25 @@
         width: 1.5, "line-color": EF.muted, "target-arrow-color": EF.muted,
         "target-arrow-shape": "triangle", "arrow-scale": 0.9, "curve-style": "bezier" } },
       { selector: 'edge[kind = "part_of"]', style: { "line-color": EF.purple, "target-arrow-color": EF.purple, "line-style": "dashed" } },
+      // focus last so its accent border wins over the per-status border.
+      { selector: 'node[focus = "1"]', style: { "border-color": EF.accent, "border-width": 4 } },
     ];
   }
 
   window.lodestar = window.lodestar || {};
 
-  window.lodestar.mountGraph = async function ({ el }) {
+  // focus (optional) = an @id; when set, fetch the focused subgraph around it and
+  // accent that node. Absent → full DAG, identical to before.
+  window.lodestar.mountGraph = async function ({ el, focus }) {
     if (!el || typeof cytoscape === "undefined") return;
     el.style.width = "100%";
     el.style.height = el.style.height || "420px";
+    const url = focus ? "/api/dag?focus=" + encodeURIComponent(focus) : "/api/dag";
     let data;
-    try { data = await fetch("/api/dag").then((r) => r.json()); } catch (_) { return; }
+    try { data = await fetch(url).then((r) => r.json()); } catch (_) { return; }
     cytoscape({
       container: el,
-      elements: elements(data),
+      elements: elements(data, focus),
       style: style(),
       layout: { name: "breadthfirst", directed: true, spacingFactor: 1.3, padding: 24, animate: false },
       wheelSensitivity: 0.2, minZoom: 0.2, maxZoom: 2.5,

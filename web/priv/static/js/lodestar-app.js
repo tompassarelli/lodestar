@@ -57,11 +57,11 @@
   // Mount a renderer into an INNER wrapper, not the frame content itself — the
   // mount fns overwrite root.style.cssText (height:100%), which would clobber the
   // content box's flex:1 1 0/overflow and let the surface grow the frame.
-  function mountInto(container, fn) {
+  function mountInto(container, fn, opts) {
     container.textContent = "";
     const inner = el("div", "height:100%;width:100%;overflow:hidden;");
     container.append(inner);
-    if (typeof fn === "function") { try { fn({ el: inner }); } catch (e) { console.error("mount failed:", e); } }
+    if (typeof fn === "function") { try { fn({ el: inner, ...(opts || {}) }); } catch (e) { console.error("mount failed:", e); } }
   }
 
   async function post(url, body) {
@@ -100,12 +100,15 @@
     app.append(left, right);
 
     let current = null;
-    function show(key) {
+    function show(key, opts) {
       const v = VIEWS.find((x) => x[0] === key);
-      mountInto(wb.content, window.lodestar && window.lodestar[v[2]]);
+      mountInto(wb.content, window.lodestar && window.lodestar[v[2]], opts);
       current = key;
       paintToggle();
     }
+    // right-click → "View DAG" on a row calls this: switch the workbench to the
+    // graph view, filtered to that thread's connected subgraph.
+    window.lodestar.focusGraph = (id) => show("graph", { focus: id });
     function paintToggle() {
       toggle.textContent = "";
       VIEWS.forEach(([k, label]) => {

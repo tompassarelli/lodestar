@@ -1,7 +1,12 @@
 defmodule LodestarWeb.ApiController do
   use LodestarWeb, :controller
 
-  # Cytoscape-ready thread DAG from the board daemon (:7977).
+  # Cytoscape-ready thread DAG from the board daemon (:7977). With ?focus=<id>,
+  # returns only the connected subgraph around that thread (ancestors +
+  # descendants over depends_on/part_of); without it, the full scoped DAG.
+  def dag(conn, %{"focus" => focus}) when is_binary(focus) and focus != "",
+    do: json(conn, Lodestar.Threads.focused(focus))
+
   def dag(conn, _params), do: json(conn, Lodestar.Threads.graph())
 
   # Claim-derived list view: threads grouped by lifecycle (in-progress/ready/

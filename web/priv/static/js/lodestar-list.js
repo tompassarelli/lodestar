@@ -31,15 +31,26 @@
     } catch (_) {}
   }
 
+  async function retract(id, pred, obj) {
+    try {
+      await fetch("/api/retract", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ graph: "board", te: id, p: pred, r: obj }),
+      });
+    } catch (_) {}
+  }
+
   // Linear-style row actions — NO static buttons. Hover a row to target it, press
-  // a hotkey; or right-click for the menu. Each action writes a claim (/api/tell).
+  // a hotkey; or right-click for the menu. Each action writes a claim.
   let hoverItem = null;
   const today = () => new Date().toISOString().slice(0, 10);
+  const focusGraph = (id) => { if (window.lodestar && window.lodestar.focusGraph) window.lodestar.focusGraph(id); };
   const ACTIONS = [
     { key: "d", label: "Mark done", run: (it) => tell(it.id, "outcome", "done") },
     { key: "c", label: "Commit spec", run: (it) => tell(it.id, "committed", "true") },
     { key: "s", label: "Schedule today", run: (it) => tell(it.id, "do_on", today()) },
     { key: "u", label: "Unschedule", run: (it) => tell(it.id, "do_on", "") },
+    { key: "g", label: "View DAG", run: (it) => focusGraph(it.id) },
   ];
 
   let menuEl = null;
@@ -90,11 +101,12 @@
   }
 
   function row(item) {
-    const draggable = item.lens === "open"; // reorder the actionable pool
     const r = el("div",
       `display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid ${EF.edge};` +
-      `cursor:${draggable ? "grab" : "default"};font-size:13px;color:${EF.ink};`);
-    if (draggable) { r.draggable = true; r.dataset.id = item.id; }
+      `cursor:grab;font-size:13px;color:${EF.ink};`);
+    // every row drags: within Open = reorder (priority); across lanes = resolution
+    // change (→Done done, →Open commit, →Draft uncommit).
+    r.draggable = true; r.dataset.id = item.id; r.dataset.lens = item.lens;
     // Linear-style: hover targets the row for hotkeys; right-click opens actions.
     // No static per-row button — actions live in the context menu + keyboard.
     r.onmouseenter = () => { r.style.background = EF.panel; hoverItem = item; };
@@ -108,6 +120,7 @@
   }
 
   let dragEl = null;
+  let dragLens = null;
 
   // y-position → the row to insert the dragged element before (null = append).
   function dragAfter(container, y) {
@@ -156,29 +169,42 @@
       caret.textContent = nowFolded ? "▸" : "▾";
     };
 
-    // DRAG-RESEQUENCE (committed/actionable pool): reorder rows, then persist the
-    // new order as `priority` claims (10,20,30…) — claims-native, survives reload.
-    if (g.key === "committed" && g.items.length > 1) {
-      body.addEventListener("dragstart", (e) => {
-        dragEl = e.target.closest("[data-id]");
-        if (dragEl) dragEl.style.opacity = "0.4";
-      });
-      body.addEventListener("dragover", (e) => {
-        e.preventDefault();
-        if (!dragEl) return;
+    // DRAG. Within Open: reorder → priority claims. Across lanes: change the
+    // thread's resolution by writing the dropped-into lane's defining claim.
+    body.addEventListener("dragstart", (e) => {
+      dragEl = e.target.closest("[data-id]");
+      if (dragEl) { dragLens = dragEl.dataset.lens; dragEl.style.opacity = "0.4"; }
+    });
+    body.addEventListener("dragover", (e) => {
+      e.preventDefault(); // mark this lane a valid drop target
+      if (!dragEl) return;
+      if (dragLens === g.key && g.key === "open") { // live reorder within Open
         const after = dragAfter(body, e.clientY);
         if (after == null) body.appendChild(dragEl);
         else body.insertBefore(dragEl, after);
-      });
-      body.addEventListener("dragend", async () => {
-        if (!dragEl) return;
-        dragEl.style.opacity = "1";
-        dragEl = null;
-        const ids = [...body.querySelectorAll("[data-id]")].map((r) => r.dataset.id);
-        await Promise.all(ids.map((id, i) => tell(id, "priority", String((i + 1) * 10))));
+      }
+    });
+    body.addEventListener("drop", async (e) => {
+      e.preventDefault();
+      if (!dragEl) return;
+      const id = dragEl.dataset.id;
+      if (dragLens !== g.key) {
+        // cross-lane = resolution mutation
+        if (g.key === "done") await tell(id, "outcome", "done");
+        else if (g.key === "open") await tell(id, "committed", "true");
+        else if (g.key === "draft") await retract(id, "committed", "true");
         render(listEl);
-      });
-    }
+      } else if (g.key === "open") {
+        // within Open: persist the new visual order as priority claims
+        const ids = [...body.querySelectorAll("[data-id]")].map((r) => r.dataset.id);
+        await Promise.all(ids.map((d, i) => tell(d, "priority", String((i + 1) * 10))));
+        render(listEl);
+      }
+    });
+    body.addEventListener("dragend", () => {
+      if (dragEl) dragEl.style.opacity = "1";
+      dragEl = null; dragLens = null;
+    });
     return sec;
   }
 

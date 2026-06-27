@@ -1,7 +1,15 @@
-// Claims-native KANBAN board. Reads /api/board (lanes of cards keyed by derived
-// lifecycle), renders horizontal lanes, and writes claims back via /api/tell —
-// the same round-trip the wake action primitive uses. Auto-refreshes on the
-// /live WebSocket (board commits) so it stays current with zero reload.
+// Claims-native KANBAN. Reads /api/list (the SAME source the list view uses) so
+// the two surfaces can never disagree, and writes claims back via /api/tell +
+// /api/retract — the round-trip the wake action primitive uses.
+//
+// MODEL: columns are the thread's intrinsic RESOLUTION only — Open (committed,
+// not done), Draft (plan not yet committed), Done (work resolved). ATTENTION is
+// NOT a column: active / scheduled / blocked render as card BADGES, exactly like
+// the list's facetBadges. Lifecycle is derived from facts, never a stored status.
+//
+// DRAG: within a column reorders (priority claims 10,20,30…); across a column
+// mutates the defining claim — Done sets outcome=done, Open sets committed=true,
+// Draft RETRACTS committed. Auto-refreshes on the /live WebSocket.
 // Everforest-dark-hard, matched to the rest of the surface.
 (function () {
   const EF = {
@@ -9,17 +17,9 @@
     muted: "#859289", accent: "#7fbbb3", star: "#dbbc7f", ok: "#a7c080",
     warn: "#e67e80", purple: "#d699b6",
   };
-  // lane/status key -> accent (the status dot + count chip + lane rule)
-  const HUE = {
-    active: EF.star, "in-progress": EF.star,
-    blocked: EF.warn,
-    ready: EF.accent, done: EF.ok,
-    backlog: EF.muted, draft: EF.purple,
-  };
-  // active->star, blocked->warn, ready->accent/ok, backlog->muted
-  function hue(key, status) {
-    return HUE[status] || HUE[key] || EF.muted;
-  }
+  // resolution column -> hue (attention/scheduled/blocked are overlay badges).
+  // Matches lodestar-list.js exactly so the dot/accent reads identically.
+  const HUE = { open: EF.ok, draft: EF.purple, done: EF.muted };
 
   function el(tag, style, text) {
     const e = document.createElement(tag);
@@ -38,74 +38,163 @@
     } catch (_) {}
   }
 
-  function card(c, accent, root) {
+  // Retract a single claim — the inverse of tell. Draft is "uncommitted", so
+  // moving a card back to Draft means dropping its `committed` fact entirely.
+  async function retract(id, pred, obj) {
+    try {
+      await fetch("/api/retract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ graph: "board", te: id, p: pred, r: obj }),
+      });
+    } catch (_) {}
+  }
+
+  // one chip per ACTIVE axis — identical to the list's facetBadges so attention
+  // reads the same on both surfaces. Attention (an agent on it now) leads.
+  function facetBadges(item) {
+    const wrap = el("span", "flex:0 0 auto;display:flex;gap:5px;align-items:center;");
+    const chip = (txt, color, title) => {
+      const c = el("span",
+        `font-size:10px;color:${color};border:1px solid ${color}55;border-radius:3px;padding:0 5px;white-space:nowrap;`, txt);
+      c.title = title; return c;
+    };
+    if (item.active) wrap.append(chip("▷ " + (item.driver ? item.driver.replace(/^@/, "") : "active"), EF.star, "active — an agent is attending now"));
+    if (item.scheduled) wrap.append(chip("◷ " + (item.do_on || "soon"), EF.ok, "scheduled (do_on)"));
+    if (item.blocked) wrap.append(chip("blocked", EF.warn, "blocked — open dependency"));
+    return wrap;
+  }
+
+  // Drag state is module-level so dragstart (delegated on the row) and dragend
+  // can coordinate across columns. dragFrom = the lens the card started in.
+  let dragEl = null, dragFrom = null;
+
+  // y-position → the card to insert the dragged element before (null = append).
+  // Same routine as lodestar-list.js's dragAfter.
+  function dragAfter(container, y) {
+    const cards = [...container.querySelectorAll("[data-id]")].filter((r) => r !== dragEl);
+    let best = null, bestOff = -Infinity;
+    for (const r of cards) {
+      const box = r.getBoundingClientRect();
+      const off = y - box.top - box.height / 2;
+      if (off < 0 && off > bestOff) { bestOff = off; best = r; }
+    }
+    return best;
+  }
+
+  function card(it) {
+    const accent = HUE[it.lens] || EF.muted;
     const k = el("div",
-      `position:relative;display:flex;align-items:center;gap:9px;padding:9px 11px;` +
-      `margin:0 0 7px 0;border:1px solid ${EF.edge};border-left:2px solid ${accent};border-radius:5px;` +
-      `background:${EF.panel};font-size:13px;color:${EF.ink};`);
-    k.onmouseenter = () => (k.style.borderColor = accent);
-    k.onmouseleave = () => (k.style.borderColor = EF.edge);
+      `position:relative;display:flex;align-items:center;gap:9px;padding:9px 11px;margin:0 0 7px 0;` +
+      `border:1px solid ${EF.edge};border-left:2px solid ${accent};border-radius:5px;` +
+      `background:${EF.panel};font-size:13px;color:${EF.ink};cursor:grab;`);
+    k.draggable = true;
+    k.dataset.id = it.id;
+    k.dataset.lens = it.lens;
+    k.onmouseenter = () => { k.style.borderColor = accent; };
+    k.onmouseleave = () => { k.style.borderColor = EF.edge; k.style.borderLeftColor = accent; };
 
     const dot = el("span", `flex:0 0 auto;width:7px;height:7px;border-radius:50%;background:${accent};`);
-    const label = el("span",
-      "flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;", c.label);
-    if (c.driver) label.title = `${c.label} — ${c.driver.replace(/^@/, "")}`;
-
-    // claims-native action: mark done -> writes outcome=done -> /live -> refetch
-    const done = el("button",
-      `flex:0 0 auto;font-size:11px;padding:2px 8px;border:1px solid ${EF.edge};border-radius:4px;` +
-      `background:transparent;color:${EF.muted};cursor:pointer;`, "done");
-    done.onmouseenter = () => { done.style.color = EF.ok; done.style.borderColor = EF.ok; };
-    done.onmouseleave = () => { done.style.color = EF.muted; done.style.borderColor = EF.edge; };
-    done.onclick = async (e) => {
-      e.stopPropagation();
-      await tell(c.id, "outcome", "done");
-      render(root);
-    };
-
-    k.append(dot, label, done);
+    const title = el("span", "flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;", it.title);
+    k.append(dot, title, facetBadges(it));
     return k;
   }
 
-  function lane(l, root) {
-    const accent = hue(l.key, null);
-    // flex-1 column so lanes share width evenly and the row never needs to scroll
-    // unless cramped; vertical overflow is per-lane, not the whole row.
+  // Done is the resting state → narrow by default; click its header to expand.
+  // Persisted so the fold survives reload + live re-render.
+  let doneExpanded = (() => {
+    try { return localStorage.getItem("ls-board-done") === "1"; } catch (_) { return false; }
+  })();
+  const persistDone = () => { try { localStorage.setItem("ls-board-done", doneExpanded ? "1" : "0"); } catch (_) {} };
+
+  function column(g, root) {
+    const accent = HUE[g.key] || EF.muted;
+    const narrow = g.key === "done" && !doneExpanded;
     const col = el("div",
-      `flex:1 1 0;min-width:220px;display:flex;flex-direction:column;` +
-      `background:${EF.bg};border:1px solid ${EF.edge};border-radius:7px;overflow:hidden;`);
+      `flex:${narrow ? "0 0 190px" : "1 1 0"};min-width:${narrow ? "160px" : "240px"};` +
+      `display:flex;flex-direction:column;background:${EF.bg};border:1px solid ${EF.edge};` +
+      `border-radius:7px;overflow:hidden;`);
+    col.dataset.col = g.key;
 
     const head = el("div",
       `flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:9px 12px;` +
       `border-bottom:1px solid ${EF.edge};background:${EF.bg};` +
-      `font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:${EF.muted};`);
+      `font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:${EF.muted};` +
+      (g.key === "done" ? "cursor:pointer;user-select:none;" : ""));
+    const dot = el("span", `flex:0 0 auto;width:7px;height:7px;border-radius:50%;background:${accent};`);
     const chip = el("span",
       `min-width:18px;text-align:center;font-size:10px;padding:0 5px;border-radius:8px;` +
-      `background:${EF.panel};color:${accent};`, String((l.cards || []).length));
-    head.append(el("span", "flex:1 1 auto;", l.label), chip);
+      `background:${EF.panel};color:${accent};`, String(g.count));
+    head.append(dot, el("span", "flex:1 1 auto;", g.label), chip);
+    if (g.key === "done") {
+      head.append(el("span", `flex:0 0 auto;font-size:12px;color:${EF.muted};`, doneExpanded ? "−" : "+"));
+      head.onclick = () => { doneExpanded = !doneExpanded; persistDone(); render(root); };
+    }
     col.append(head);
 
     const body = el("div", "flex:1 1 auto;overflow-y:auto;overflow-x:hidden;padding:9px;");
-    body.classList.add("ef-scroll");
-    (l.cards || []).forEach((c) => body.append(card(c, hue(l.key, c.status), root)));
-    if (!(l.cards || []).length) {
+    (g.items || []).forEach((it) => body.append(card(it)));
+    if (!(g.items || []).length) {
       body.append(el("div", `padding:8px 4px;font-size:12px;color:${EF.edge};`, "—"));
     }
     col.append(body);
+
+    // The whole column is a drop target: dragover relocates the dragged card
+    // into this body (positioned by y), so dragend can read its resting column
+    // to decide reorder (same column) vs resolution mutation (cross column).
+    col.addEventListener("dragover", (e) => {
+      if (!dragEl) return;
+      e.preventDefault();
+      const after = dragAfter(body, e.clientY);
+      if (after == null) body.appendChild(dragEl);
+      else body.insertBefore(dragEl, after);
+    });
     return col;
   }
 
   async function render(root) {
     let data;
-    try { data = await fetch("/api/board").then((r) => r.json()); } catch (_) { return; }
+    try { data = await fetch("/api/list").then((r) => r.json()); } catch (_) { return; }
     root.textContent = "";
-    const lanes = data.lanes || [];
+    const groups = data.groups || [];
+
     // flex row; horizontal scroll only kicks in when flex-1 columns hit min-width.
     const row = el("div",
       `display:flex;gap:12px;align-items:stretch;height:100%;` +
       `overflow-x:auto;overflow-y:hidden;padding:14px;box-sizing:border-box;`);
-    row.classList.add("ef-scroll");
-    lanes.forEach((l) => row.append(lane(l, root)));
+
+    // Delegated drag lifecycle (mirrors lodestar-list.js: dragstart/dragover/dragend).
+    row.addEventListener("dragstart", (e) => {
+      dragEl = e.target.closest("[data-id]");
+      if (dragEl) { dragFrom = dragEl.dataset.lens; dragEl.style.opacity = "0.4"; }
+    });
+    row.addEventListener("dragend", async () => {
+      if (!dragEl) return;
+      dragEl.style.opacity = "1";
+      const moved = dragEl, from = dragFrom;
+      dragEl = null; dragFrom = null;
+
+      const targetCol = moved.closest("[data-col]");
+      const to = targetCol && targetCol.dataset.col;
+      if (!to) { render(root); return; }            // dropped nowhere → resync
+
+      if (to === from) {
+        // WITHIN a column: persist the new order as priority claims (10,20,30…).
+        const ids = [...targetCol.querySelectorAll("[data-id]")].map((r) => r.dataset.id);
+        await Promise.all(ids.map((id, i) => tell(id, "priority", String((i + 1) * 10))));
+        render(root);
+        return;
+      }
+
+      // CROSS column: set the destination column's defining resolution claim.
+      const id = moved.dataset.id;
+      if (to === "done") await tell(id, "outcome", "done");
+      else if (to === "open") await tell(id, "committed", "true");
+      else if (to === "draft") await retract(id, "committed", "true");
+      render(root);
+    });
+
+    groups.forEach((g) => row.append(column(g, root)));
     root.append(row);
   }
 
@@ -123,26 +212,12 @@
     setInterval(() => render(root), 15000); // backstop poll
   }
 
-  // Thin themed scrollbars (match list.js surface) — injected once.
-  function injectScrollbarCss() {
-    if (document.getElementById("ef-board-css")) return;
-    const s = el("style");
-    s.id = "ef-board-css";
-    s.textContent =
-      `.ef-scroll::-webkit-scrollbar{width:8px;height:8px;}` +
-      `.ef-scroll::-webkit-scrollbar-track{background:transparent;}` +
-      `.ef-scroll::-webkit-scrollbar-thumb{background:${EF.edge};border-radius:4px;}` +
-      `.ef-scroll::-webkit-scrollbar-thumb:hover{background:${EF.muted};}` +
-      `.ef-scroll{scrollbar-width:thin;scrollbar-color:${EF.edge} transparent;}`;
-    document.head.append(s);
-  }
-
   window.lodestar = window.lodestar || {};
   window.lodestar.mountBoard = function ({ el: root }) {
     if (!root) return;
-    injectScrollbarCss();
+    // Thin themed scrollbars come from the shell's global CSS (* + ::-webkit-*);
+    // nothing to inject here.
     root.style.cssText = `height:100%;background:${EF.bg};box-sizing:border-box;`;
-    root.classList.add("ef-scroll");
     render(root);
     liveRefresh(root);
   };
