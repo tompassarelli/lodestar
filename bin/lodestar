@@ -25,10 +25,13 @@ FRAM="${FRAM_HOME:-$HOME/code/fram}"
 LODESTAR="$(cd "$(dirname "$0")/.." && pwd)"
 
 case "${1:-}" in
-  ready|blocked|leverage|next|agenda|plate|capture|json|needs-review|audit|doctor|clock)
+  ready|blocked|leverage|next|agenda|plate|capture|json|needs-review|audit|validate|doctor|clock)
+    # `validate` runs lodestar's FULL check (engine-generic ++ lodestar work rules,
+    # lodestar.validate) — the fram CLI `validate` is generic-only since the work
+    # rules moved out of the kernel. The MCP validate tool shells through here too.
     exec bb -cp "$LODESTAR/out:$FRAM/out" -m lodestar.main "$@" ;;
   up)
     exec "$FRAM/bin/fram-up" "${@:2}" ;;
-  *)  # engine verbs: import/export/show/validate/set/merge/tell/untell/watch
+  *)  # engine verbs: import/export/show/set/merge/tell/untell/watch
     exec "$FRAM/bin/fram" "$@" ;;
 esac

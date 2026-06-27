@@ -11,6 +11,7 @@
    never stored, consistent with the no-stored-derived model (D6).")
 
 (require fram.kernel :as k)
+(require lodestar.projections :as proj)
 (require clojure.string :as str)
 
 ;; the single open session: has session_of + start_time, no end_time.
@@ -48,7 +49,7 @@
                   est (if (some? est-s) (str->int est-s) 0)
                   act (actual-seconds idx te iso->sec)]
               (if (or (> est 0) (> act 0))
-                (conj acc (->Row te est act (k/terminal-i? idx te)))
+                (conj acc (->Row te est act (proj/terminal-i? idx te)))
                 acc)))
           []
           (k/thread-ids-i idx)))
@@ -101,5 +102,5 @@
 (defn logged-rows [idx :- k/Index prefixes :- (Vec String) iso->sec :- [String -> Int]] :- (Vec Row)
   (filterv (fn [r :- Row] :- Bool (> (:act-sec r) 0))
            (mapv (fn [te :- String] :- Row
-                   (->Row te 0 (actual-seconds-in idx te prefixes iso->sec) (k/terminal-i? idx te)))
+                   (->Row te 0 (actual-seconds-in idx te prefixes iso->sec) (proj/terminal-i? idx te)))
                  (k/thread-ids-i idx))))

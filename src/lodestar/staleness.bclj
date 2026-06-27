@@ -15,6 +15,7 @@
    derived views (ready/blocked/active) recompute and so can't go stale either.")
 
 (require fram.kernel :as k)
+(require lodestar.projections :as proj)
 (require fram.fold :as f)
 
 ;; te = the thread, pred = which judgment, detail = why it needs review.
@@ -39,7 +40,7 @@
   (reduce
    (fn [acc :- (Vec Review) te :- String] :- (Vec Review)
      (let [vu (k/one-i idx te "valid_until")]
-       (if (and (not (k/terminal-i? idx te))
+       (if (and (not (proj/terminal-i? idx te))
                 (and (some? vu) (before? vu today)))
          (conj acc (->Review te "valid_until" (str vu " is past " today " — re-validate or drop")))
          acc)))
@@ -50,7 +51,7 @@
 (defn edge-stale [idx :- k/Index] :- (Vec Review)
   (reduce
    (fn [acc :- (Vec Review) te :- String] :- (Vec Review)
-     (if (k/terminal-i? idx te)
+     (if (proj/terminal-i? idx te)
        acc
        (reduce
         (fn [a :- (Vec Review) p :- String] :- (Vec Review)
@@ -81,7 +82,7 @@
   (reduce
    (fn [acc :- (Vec Review) v :- f/Latest] :- (Vec Review)
      (if (and (= (:p v) "estimate_hours")
-              (and (not (k/terminal-i? idx (:l v)))
+              (and (not (proj/terminal-i? idx (:l v)))
                    (> (later-edit-scope-tx latest (:l v)) (:tx v))))
        (conj acc (->Review (:l v) "estimate_hours"
                            (str (:r v) "h estimated before a later scope edit — re-estimate")))
@@ -107,5 +108,5 @@
 (defn promotable [idx :- k/Index] :- (Vec String)
   (filterv (fn [te :- String] :- Bool
              (and (nil? (k/one-i idx te "committed"))
-                  (and (not (k/terminal-i? idx te)) (has-structure? idx te))))
+                  (and (not (proj/terminal-i? idx te)) (has-structure? idx te))))
            (k/thread-ids-i idx)))

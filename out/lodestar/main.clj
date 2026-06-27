@@ -5,6 +5,7 @@
             [fram.import :as imp]
             [fram.export :as exp]
             [lodestar.projections :as proj]
+            [lodestar.validate :as val]
             [lodestar.staleness :as stale]
             [lodestar.clock :as clk]
             [lodestar.audit :as audit]
@@ -109,6 +110,14 @@
   (doseq [g rd]
   (println (str "  " (:norm g) ": " (str/join ", " (:forms g)))))))
 
+(defn cmd-validate [^String log]
+  (let [idx (k/build-index (:claims (fold/fold (fram.rt/read-log log))))
+   problems (reduce (fn [acc te] (reduce (fn [a v] (conj a (str (short-id te) ": " v))) acc (val/violations-i idx te))) [] (k/thread-ids-i idx))]
+  (if (empty? problems) (println (str "OK — " (count (k/thread-ids-i idx)) " threads, no violations.")) (do
+  (doseq [p problems]
+  (println (str "  " p)))
+  (println (str (count problems) " violation(s)."))))))
+
 (defn cmd-ready [^String log]
   (let [idx (k/build-index (:claims (fold/fold (fram.rt/read-log log))))
    today (fram.rt/today-iso)
@@ -121,14 +130,14 @@
   (let [idx (k/build-index (:claims (fold/fold (fram.rt/read-log log))))
    today (fram.rt/today-iso)
    before? fram.rt/str-lt?
-   bs (filterv (fn [te] (= (proj/condition-i idx te today before?) "blocked")) (k/work-thread-ids-i idx))]
+   bs (filterv (fn [te] (= (proj/condition-i idx te today before?) "blocked")) (proj/work-thread-ids-i idx))]
   (println (str "BLOCKED — " (count bs)))
   (doseq [te bs]
   (println (str "  " (short-id te) "  " (trunc (title-of idx te) 48) "  (waiting on " (count (proj/incomplete-deps idx te)) ")")))))
 
 (defn cmd-leverage [^String log]
   (let [idx (k/build-index (:claims (fold/fold (fram.rt/read-log log))))
-   cands (filterv (fn [te] (not (k/terminal-i? idx te))) (k/work-thread-ids-i idx))
+   cands (filterv (fn [te] (not (proj/terminal-i? idx te))) (proj/work-thread-ids-i idx))
    items (filterv (fn [it] (> (:score it) 0)) (mapv (fn [te] (->LevItem te (proj/leverage-score idx te))) cands))
    ranked (vec (take 15 (sort-by (fn [it] (- 0 (:score it))) items)))]
   (println "TOP UNBLOCKERS — finishing this transitively frees the most stuck threads")
@@ -154,7 +163,7 @@
 (defn cmd-agenda [^String log]
   (let [idx (k/build-index (:claims (fold/fold (fram.rt/read-log log))))
    today (fram.rt/today-iso)
-   cands (filterv (fn [te] (and (not (k/terminal-i? idx te)) (some? (k/one-i idx te "do_on")))) (k/work-thread-ids-i idx))
+   cands (filterv (fn [te] (and (not (proj/terminal-i? idx te)) (some? (k/one-i idx te "do_on")))) (proj/work-thread-ids-i idx))
    items (mapv (fn [te] (->AgendaItem te (let [d (k/one-i idx te "do_on")]
   (if (some? d) d "")))) cands)
    overdue (vec (sort-by (fn [it] (:do_on it)) (filterv (fn [it] (fram.rt/str-lt? (:do_on it) today)) items)))
@@ -184,7 +193,7 @@
   (let [idx (k/build-index (:claims (fold/fold (fram.rt/read-log log))))
    today (fram.rt/today-iso)
    before? fram.rt/str-lt?
-   nonterm (filterv (fn [te] (not (k/terminal-i? idx te))) (k/work-thread-ids-i idx))]
+   nonterm (filterv (fn [te] (not (proj/terminal-i? idx te))) (proj/work-thread-ids-i idx))]
   (println (str "ON YOUR PLATE — " (count nonterm) " open"))
   (plate-group idx "active" (in-condition idx nonterm today before? "active"))
   (plate-group idx "ready" (in-condition idx nonterm today before? "ready"))
@@ -263,9 +272,9 @@
    today (fram.rt/today-iso)
    before? fram.rt/str-lt?]
   (cond
-  (= what "plate") (println (fram.rt/to-json (mapv (fn [te] (jthread idx te today before?)) (filterv (fn [te] (not (k/terminal-i? idx te))) (k/work-thread-ids-i idx)))))
+  (= what "plate") (println (fram.rt/to-json (mapv (fn [te] (jthread idx te today before?)) (filterv (fn [te] (not (proj/terminal-i? idx te))) (proj/work-thread-ids-i idx)))))
   (= what "ready") (println (fram.rt/to-json (mapv (fn [te] (jthread idx te today before?)) (proj/ready idx today before?))))
-  (= what "blocked") (println (fram.rt/to-json (mapv (fn [te] (jthread idx te today before?)) (filterv (fn [te] (= (proj/condition-i idx te today before?) "blocked")) (k/work-thread-ids-i idx)))))
+  (= what "blocked") (println (fram.rt/to-json (mapv (fn [te] (jthread idx te today before?)) (filterv (fn [te] (= (proj/condition-i idx te today before?) "blocked")) (proj/work-thread-ids-i idx)))))
   (= what "needs-review") (let [latest (fold/fold-latest as)
    today (fram.rt/today-iso)
    reviews (stale/needs-review idx latest today (fn [a b] (fram.rt/str-lt? a b)))]
@@ -430,6 +439,7 @@
   (= cmd "plate") (cmd-plate log)
   (= cmd "needs-review") (cmd-needs-review log)
   (= cmd "audit") (cmd-audit log)
+  (= cmd "validate") (cmd-validate log)
   (= cmd "doctor") (cmd-doctor threads-dir log)
   (= cmd "json") (cmd-json log (if (> (count args) 1) (nth args 1) "") (if (> (count args) 2) (nth args 2) ""))
   (= cmd "clock") (let [sub (if (> (count args) 1) (nth args 1) "status")]
@@ -445,7 +455,7 @@
   (= sub "projects") (cf/cmd-projects)
   (= sub "workspaces") (cf/cmd-workspaces)
   :else (println "usage: clock start <id> | stop | status | report | today | week | sync | map <owner> <project-id> | projects | workspaces")))
-  :else (println "lodestar usage: capture <title> [owner] | ready | blocked | leverage | next | agenda | plate | needs-review | audit | doctor | json <...> | clock <start|stop|status|report|today|week|sync|map|projects|workspaces>   (engine verbs import/export/show/set/tell/merge route to fram)"))))
+  :else (println "lodestar usage: capture <title> [owner] | ready | blocked | leverage | next | agenda | plate | needs-review | audit | validate | doctor | json <...> | clock <start|stop|status|report|today|week|sync|map|projects|workspaces>   (engine verbs import/export/show/set/tell/merge route to fram)"))))
 
 (defn -main [& args]
   (run (vec args) (fram.rt/threads-dir) (fram.rt/log-path)))

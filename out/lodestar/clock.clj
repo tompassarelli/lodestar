@@ -1,5 +1,6 @@
 (ns lodestar.clock
   (:require [fram.kernel :as k]
+            [lodestar.projections :as proj]
             [clojure.string :as str]))
 
 (defn running-session [idx]
@@ -25,7 +26,7 @@
   (reduce (fn [acc te] (let [est-s (k/one-i idx te "estimate_hours")
    est (if (some? est-s) (str->int est-s) 0)
    act (actual-seconds idx te iso->sec)]
-  (if (or (> est 0) (> act 0)) (conj acc (->Row te est act (k/terminal-i? idx te))) acc))) [] (k/thread-ids-i idx)))
+  (if (or (> est 0) (> act 0)) (conj acc (->Row te est act (proj/terminal-i? idx te))) acc))) [] (k/thread-ids-i idx)))
 
 (defrecord Calib [pct sample est-sec act-sec])
 
@@ -58,4 +59,4 @@
   (if (and (= so te) (and (some? st) (and (some? en) (starts-with-any? st prefixes)))) (+ acc (- (iso->sec en) (iso->sec st))) acc))) 0 (:subjects idx)))
 
 (defn logged-rows [idx prefixes iso->sec]
-  (filterv (fn [r] (> (:act-sec r) 0)) (mapv (fn [te] (->Row te 0 (actual-seconds-in idx te prefixes iso->sec) (k/terminal-i? idx te))) (k/thread-ids-i idx))))
+  (filterv (fn [r] (> (:act-sec r) 0)) (mapv (fn [te] (->Row te 0 (actual-seconds-in idx te prefixes iso->sec) (proj/terminal-i? idx te))) (k/thread-ids-i idx))))
