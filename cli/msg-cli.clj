@@ -32,6 +32,25 @@
 
 (defn for-me? [to me] (or (= to me) (= to "*")))   ; group ("beagle-*") expansion = a later demand-driven add
 
+;; --- Phase 0: structured command envelope ----------------------------------
+;; A message body MAY be an EDN command the reactor (Phase 1) dispatches on:
+;;   {:op :dispatch|:spawn|:tell|:claim  :args {...}}
+;; Plain-string bodies stay valid (human mail) — only EDN maps starting `{` with a
+;; known :op are commands. This is the one machine-dispatchable contract both sides agree on.
+(def known-ops #{:dispatch :spawn :tell :claim})
+(defn parse-envelope
+  "Parse a message body as a command envelope. -> {:op kw :args map} on a valid
+   command, {:error msg} on a malformed command, nil for a plain (non-command) body."
+  [body]
+  (when (and body (str/starts-with? (str/triml (str body)) "{"))
+    (let [m (try (edn/read-string body) (catch Exception _ ::bad))]
+      (cond
+        (= m ::bad)               {:error "body looks like a command but is not valid EDN"}
+        (not (map? m))            {:error "command envelope must be an EDN map"}
+        (not (known-ops (:op m))) {:error (str "unknown :op " (pr-str (:op m)) " (known: " (str/join " " (sort (map name known-ops))) ")")}
+        (not (map? (:args m)))    {:error ":args must be a map"}
+        :else                     {:op (:op m) :args (:args m)}))))
+
 (let [[port verb & args] *command-line-args*
       port (Integer/parseInt port)]
   (case verb
@@ -86,4 +105,28 @@
       (assert! port e "acked_at" (str (java.time.Instant/now)))
       (println (str me " acked " e)))
 
-    (do (println "usage: msg-cli.clj <port> {send|inbox|thread|ack|validate}") (System/exit 2))))
+    "send-cmd"    ; <from> <to> <op> "<args-edn>" — send a structured command envelope as the body
+    (let [[from to op args-edn] args
+          env {:op (keyword op) :args (try (edn/read-string (or args-edn "{}")) (catch Exception _ ::bad))}
+          chk (parse-envelope (pr-str env))]
+      (if (:error chk)
+        (do (println (str "REJECTED: " (:error chk))) (System/exit 2))
+        (let [id (str (.format (java.time.LocalDateTime/now)
+                               (java.time.format.DateTimeFormatter/ofPattern "yyyyMMdd-HHmmss")) "-" from
+                      "-" (format "%04x" (rand-int 0x10000)))
+              e (str "@msg:" id)]
+          (assert! port e "from" from)
+          (assert! port e "to" to)
+          (assert! port e "subject" (str "cmd:" op))
+          (assert! port e "body" (pr-str env))
+          (assert! port e "sent_at" (str (java.time.Instant/now)))
+          (println (str "sent cmd " e " -> " to "  " (pr-str env))))))
+
+    "parse"       ; "<body>" — show how the reactor (Phase 1) would parse this body (dogfood/validate)
+    (let [[body] args, r (parse-envelope body)]
+      (println (cond (nil? r)   "PLAIN (not a command — handled as human mail)"
+                     (:error r) (str "MALFORMED: " (:error r))
+                     :else      (str "COMMAND op=" (:op r) " args=" (pr-str (:args r)))))
+      (System/exit (if (:error r) 1 0)))
+
+    (do (println "usage: msg-cli.clj <port> {send|send-cmd|parse|inbox|thread|ack|validate}") (System/exit 2))))
