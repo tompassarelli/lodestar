@@ -20,6 +20,11 @@
 (def send-op lodestar.coord/send-op)
 (def rf      lodestar.coord/resolved)
 (def rmany   lodestar.coord/many)
+;; shared incremental-aggregate (coord.clj): budget Σ and the driver ceiling are
+;; the SAME fold quorum rides — two reducers, one substrate (roadmap F+G).
+(def agg-rows       lodestar.coord/agg-rows)
+(def sum-rows       lodestar.coord/sum-rows)
+(def count-distinct lodestar.coord/count-distinct)
 (defn role-slug [r] (when (and (string? r) (>= (count r) 6) (= "@role:" (subs r 0 6))) (subs r 6)))
 
 (defn ack! [port me id]
@@ -41,31 +46,25 @@
 ;; same budget the executors' costs roll up to.
 (def budget-subj (or (System/getenv "LODESTAR_BUDGET") "@swarm"))
 (defn spent-sum
-  "Σ(@run:* cost_usd) — live spend folded from immutable per-run cost claims. The find
-   returns (run,cost) PAIRS so equal-cost runs stay distinct (a cost-only find would
-   dedup them under set semantics and under-count)."
+  "Σ(@run:* cost_usd) — live spend folded from immutable per-run cost claims via the
+   shared SUM reducer (coord/sum-rows). cost_usd subjects are scoped to @run: with a
+   client-side prefix the scan body can't express, then folded as [run cost] rows so
+   equal-cost runs stay distinct (a value-only fold would dedup + under-count)."
   [port]
-  (->> (:ok (send-op port {:op :query
-                           :query {:find "c"
-                                   :rules [{:head {:rel "c" :args [{:var "e"} {:var "v"}]}
-                                            :body [{:rel "triple" :args [{:var "e"} "cost_usd" {:var "v"}]}]}]}}))
+  (->> (agg-rows port ["e" "v"] [{:rel "triple" :args [{:var "e"} "cost_usd" {:var "v"}]}])
        (filter #(str/starts-with? (str (first %)) "@run:"))
-       (keep #(parse-double (str (second %))))
-       (reduce + 0.0)))
+       sum-rows))
 (defn budget-remaining
   "budget_total − Σ(@run cost_usd), or nil if no budget_total set (= unbounded)."
   [port]
   (when-let [total (parse-double (str (or (rf port budget-subj "budget_total") "")))]
     (- total (spent-sum port))))
 (defn live-drivers
-  "count of distinct subjects carrying a live `driver` claim — the derived
-   concurrency, replacing the @swarm-slot semaphore."
+  "count-distinct subjects carrying a live `driver` claim — the derived concurrency
+   ceiling, replacing the @swarm-slot semaphore. The SAME count-distinct QUORUM
+   (coord.clj) lodestar-map's K-of-N barrier folds: the ceiling is a quorum over drivers."
   [port]
-  (->> (:ok (send-op port {:op :query
-                           :query {:find "d"
-                                   :rules [{:head {:rel "d" :args [{:var "s"} {:var "a"}]}
-                                            :body [{:rel "triple" :args [{:var "s"} "driver" {:var "a"}]}]}]}}))
-       (map first) distinct count))
+  (count-distinct port ["s"] [{:rel "triple" :args [{:var "s"} "driver" {:var "a"}]}]))
 (defn with-guard
   "Gate a blocking agent shell: skip if the cost budget is spent OR live drivers are at
    the derived ceiling; else run. No slots, no semaphore — both limits are read-time folds."
