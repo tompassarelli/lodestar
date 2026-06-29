@@ -72,6 +72,33 @@ export async function remaining(): Promise<number> {
   return total - (await spentSum());
 }
 
+// Approx public per-Mtok USD pricing by model family — for IN-RUN spend estimation
+// (the live cap; thread 019f1194-ca57). The final recordRun still uses the SDK's
+// authoritative total_cost_usd; this is only to decide when to stop mid-run.
+const PRICING: Record<string, { in: number; out: number; cacheR: number; cacheW: number }> = {
+  opus: { in: 15, out: 75, cacheR: 1.5, cacheW: 18.75 },
+  sonnet: { in: 3, out: 15, cacheR: 0.3, cacheW: 3.75 },
+  haiku: { in: 0.8, out: 4, cacheR: 0.08, cacheW: 1 },
+};
+function priceFor(model?: string) {
+  const m = (model ?? "").toLowerCase();
+  if (m.includes("opus")) return PRICING.opus;
+  if (m.includes("haiku")) return PRICING.haiku;
+  return PRICING.sonnet; // default / sonnet tier
+}
+// USD cost of one message's usage block, given the run's model.
+export function costOf(model: string | undefined, usage: any): number {
+  if (!usage) return 0;
+  const p = priceFor(model);
+  return (
+    ((usage.input_tokens ?? 0) * p.in +
+      (usage.output_tokens ?? 0) * p.out +
+      (usage.cache_read_input_tokens ?? 0) * p.cacheR +
+      (usage.cache_creation_input_tokens ?? 0) * p.cacheW) /
+    1e6
+  );
+}
+
 // Total tokens for one agent run (input + output + cache) from the SDK result msg.
 // Retained: telemetry's recordRun folds this into the @run tuple. Spend itself is
 // no longer charged here — it is summed from the @run cost_usd claims at read time.
