@@ -12,7 +12,7 @@ defmodule Lodestar.Application do
       {DNSCluster, query: Application.get_env(:lodestar, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Lodestar.PubSub},
       # One supervised subscriber per fram daemon — the live commit→push spine.
-      Supervisor.child_spec({Lodestar.DaemonSubscriber, name: :sub_agents, graph: "agents", port: 7978}, id: :sub_agents),
+      Supervisor.child_spec({Lodestar.DaemonSubscriber, name: :sub_agents, graph: "agents", port: 7977}, id: :sub_agents),
       Supervisor.child_spec({Lodestar.DaemonSubscriber, name: :sub_board, graph: "board", port: 7977}, id: :sub_board),
       # Materialized board-graph fold; refreshed on commit (off the request path).
       Lodestar.GraphCache,

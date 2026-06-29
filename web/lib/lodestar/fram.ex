@@ -14,7 +14,8 @@ defmodule Lodestar.Fram do
   """
 
   @host ~c"127.0.0.1"
-  @agents_port 7978
+  # presence + @run telemetry moved to the canonical :7977 board (port-partition fix); :7978 retired
+  @agents_port 7977
   @board_port 7977
   @timeout 8_000
   # line-framed reads: the daemon returns one (possibly large) EDN line; size the
