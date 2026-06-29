@@ -16,3 +16,7 @@ sdk/package-lock.json
 .mix/
 .hex/
 erl_crash.dump
+
+# Internal working notes / session status / agent scratch — NOT user-facing docs.
+# Keep out of the public repo. Put private notes under docs/private/.
+docs/private/
