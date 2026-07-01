@@ -19,23 +19,19 @@
          '[cheshire.core :as json] '[clojure.java.shell])
 
 (def TTL 600000)          ; 10min lease; renew every ~3min
-(def LEASE-PRED "lease")
 
 ;; shared coord substrate: the cardinality-typed write verbs (move-C) live once in
 ;; cli/coord.clj. append! = MULTI coexist; put! = SINGLE last-writer-wins.
+;; decode-lease/lease-of/online? — the renewable-lease liveness rule — ALSO live there
+;; now, so this roster and concern-cli judge "online" by the exact same definition.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 (def send-op  tern.coord/send-op)
 (def append!  tern.coord/append!)
 (def put!     tern.coord/put!)
 (def retract! tern.coord/retract!)
 (def resolved tern.coord/resolved)
-
-(defn decode-lease [v]
-  (when (string? v)
-    (let [[h e ep] (str/split v #"\|")]
-      (when (and h e) {:holder h :exp (parse-long e) :epoch (parse-long (or ep "0"))}))))
-
-(defn lease-of [port res] (decode-lease (resolved port (str "@lease:" res) LEASE-PRED)))
+(def decode-lease tern.coord/decode-lease)
+(def lease-of     tern.coord/lease-of)
 
 (defn sessions [port]      ; -> [[session-entity handle] ...]  ONE row per uuid.
   ;; `agent` is overloaded: it anchors @session:<h> (the session) AND every @run:<sid> (cost

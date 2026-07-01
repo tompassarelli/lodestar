@@ -40,6 +40,7 @@
 (def put!     tern.coord/put!)
 (def many     tern.coord/many)
 (def resolved tern.coord/resolved)
+(def online?  tern.coord/online?)   ; renewable-lease liveness — same rule as the presence roster
 
 ;; port coercion: coord/send-op does (int port), so every port must be a NUMBER, never a
 ;; string (env vars + the stored code_port claim arrive as strings).
@@ -192,14 +193,34 @@
       (println "LIKELY-TO-LAND work in your footprint — shape your feature against these:")
       (surface port c #{"likely-to-land"} "no likely-to-land work is in your footprint yet"))
 
+    ;; A concern is LIVE only while its owning agent is ONLINE in the presence roster
+    ;; (renewable-lease liveness — coord/online?). A crashed agent's concerns never got
+    ;; a `done`, so without this they linger forever; presence lapses on its own, so we
+    ;; gate on it. Nothing is deleted — `--all`/`--stale` shows them, marked STALE. An
+    ;; agent-less concern can't lapse, so it stays visible.
     "ls"
-    (let [[repo] args
-          ms (->> (all-concerns port) (map #(meta-of port %))
-                  (remove #(= (:status %) "landed"))
-                  (filter #(or (nil? repo) (= (:repo %) repo)))
-                  (sort-by :repo))]
-      (println (str "ACTIVE CONCERNS" (when repo (str " in " repo)) " — " (count ms)))
-      (doseq [m ms] (println (fmt m))))
+    (let [flags   (set (filter #(str/starts-with? % "--") args))
+          show-all (boolean (or (flags "--all") (flags "--stale")))
+          repo    (first (remove #(str/starts-with? % "--") args))
+          agent-online? (fn [m] (let [a (:agent m)]
+                                  (if (str/blank? a) true
+                                    (online? port (if (str/starts-with? a "@") (subs a 1) a)))))
+          all-ms  (->> (all-concerns port) (map #(meta-of port %))
+                       (remove #(= (:status %) "landed"))
+                       (filter #(or (nil? repo) (= (:repo %) repo)))
+                       (map #(assoc % :online (agent-online? %)))
+                       (sort-by :repo))
+          live-ms (filter :online all-ms)
+          shown   (if show-all all-ms live-ms)
+          hidden  (- (count all-ms) (count live-ms))]
+      (println (str "ACTIVE CONCERNS" (when repo (str " in " repo))
+                    (when show-all " (incl. stale)") " — " (count shown)
+                    (when (and (not show-all) (pos? hidden))
+                      (str "  [" hidden " hidden: owning agent offline — `concern ls --all` to show]"))))
+      (doseq [m shown]
+        (println (fmt m))
+        (when (and show-all (not (:online m)))
+          (println "       (STALE: owning agent presence lapsed)"))))
 
     "status"
     (let [[c st] args]

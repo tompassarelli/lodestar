@@ -27,7 +27,7 @@
 ;;   (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 ;; then call tern.coord/send-op (or rebind the local names you use).
 (ns tern.coord
-  (:require [clojure.edn :as edn] [clojure.java.io :as io]))
+  (:require [clojure.edn :as edn] [clojure.java.io :as io] [clojure.string :as str]))
 
 ;; The canonical coordinator port. The CLIs take <port> as argv[0]; PORT is the
 ;; default/canonical reference (Part C's pred-cli + future callers read it).
@@ -79,6 +79,28 @@
 (defn resolved [port te p] (:value (send-op port {:op :resolved :te te :p p})))
 ;; all live values of (te,p) — multi-valued  (the many/rmany variants).
 (defn many     [port te p] (:values (send-op port {:op :resolved :te te :p p})))
+
+;; --- presence liveness: the renewable-LEASE rule (presence-cli #30 is the origin) ---
+;; A session's liveness is a lease claim @lease:session:<h> = "holder|exp|epoch"; the
+;; agent is ONLINE iff that lease's exp is still in the FUTURE by the coordinator's clock
+;; (never a self-stamped heartbeat — a crashed agent's lease simply lapses). Factored here
+;; so the presence roster (presence-cli) and any consumer that must judge liveness — e.g.
+;; concern-cli hiding a lapsed agent's stale concerns — share ONE definition and cannot
+;; drift on what "online" means. That single-definition guarantee is this file's whole job.
+(defn decode-lease [v]
+  (when (string? v)
+    (let [[h e ep] (str/split v #"\|")]
+      (when (and h e) {:holder h :exp (parse-long e) :epoch (parse-long (or ep "0"))}))))
+
+(defn lease-of [port res] (decode-lease (resolved port (str "@lease:" res) "lease")))
+
+(defn online?
+  "True iff session <handle> holds an unexpired lease. `now` defaults to the system clock
+   (agent runs on the coordinator's machine, so agent-now ~ coord-now)."
+  ([port handle] (online? port handle (System/currentTimeMillis)))
+  ([port handle now]
+   (let [l (lease-of port (str "session:" handle))]
+     (boolean (and l (> (:exp l) now))))))
 
 ;; ============================================================================
 ;; INCREMENTAL AGGREGATE — the completion DUAL of mutual exclusion.
