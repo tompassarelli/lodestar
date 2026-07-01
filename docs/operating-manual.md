@@ -63,7 +63,7 @@ intended or possible action. A thread may be:
 
 **Structurally, a thread is any node that has a `title`.** There is no type tag,
 no prefix, no `type:` field. "thread" is a *shape* (has a title), not a stored
-label. Likewise a **person** is a node that has a `name` (the `@handle` nodes).
+label. Likewise a **person** is a node that has a `display_name` (the `@handle` nodes; `name` is a reserved engine/schema predicate).
 
 A "project view" is *derived* from threads, not modeled as a distinct thing:
 
@@ -243,7 +243,7 @@ Three independent dimensions:
   handle (`@claude-code`, `@claude`). **Presence of a `driver` is what makes a
   thread derive as active.**
 
-Person/agent handles are `@`-refs to real person nodes (nodes with a `name`).
+Person/agent handles are `@`-refs to real person nodes (nodes with a `display_name` — `name` is reserved by the engine).
 Don't invent a handle inline; the node must exist. `tern validate` rejects
 refs that don't resolve.
 
@@ -531,7 +531,7 @@ through the coordinator.
 - every node referenced by `part_of`/`depends_on`/`relates_to`/`superseded_by`
   resolves to a **real thread** (has a `title`) — no dangling refs
 - every person/agent ref (`lead`/`driver`/`proposed_by`/`created_by`) resolves
-  to a real person node (has a `name`)
+  to a real person node (has a `display_name`)
 - no cycles in `part_of`, no cycles in `depends_on`, no self-dependency
 - dates parse; literals are valid EDN
 
