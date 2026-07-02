@@ -1,7 +1,7 @@
 #lang beagle/clj
 (ns tern.main
   "Tern life CLI: the lifecycle/projection verbs (ready, blocked, leverage,
-  next, agenda, plate, capture, clock, needs-review, audit, doctor, json). Runs on
+  next, agenda, board, capture, clock, needs-review, audit, doctor, json). Runs on
   the Fram engine (fram.*); engine verbs (tell/set/import/...) are routed to
   the fram CLI by the bin/tern wrapper."
   (:gen-class))
@@ -310,7 +310,7 @@
     (println (str "UPCOMING (" (count upcoming) ")"))
     (doseq [it upcoming] (println (str "  " (:do_on it) "  " (short-id (:te it)) "  " (trunc (title-of idx (:te it)) 44))))))
 
-(defn- plate-group [idx :- k/Index label :- String grp :- (Vec String)] :- Nil
+(defn- board-group [idx :- k/Index label :- String grp :- (Vec String)] :- Nil
   (when (not (empty? grp))
     (println (str "\n" (proj/condition-emoji idx label) " " label " (" (count grp) ")"))
     (doseq [te grp]
@@ -319,18 +319,19 @@
 (defn- in-condition [idx :- k/Index nonterm :- (Vec String) today :- String before? :- [String String -> Bool] c :- String] :- (Vec String)
   (filterv (fn [te :- String] :- Bool (= (proj/condition-i idx te today before?) c)) nonterm))
 
-(defn cmd-plate [log :- String] :- Nil
+;; board (kanban prior; `plate` kept as a hidden alias — vocabulary pass, thread 019f2032)
+(defn cmd-board [log :- String] :- Nil
   (let [idx (k/build-index (:claims (fold/fold (fram.rt/read-log log))))
         today (fram.rt/today-iso)
         before? fram.rt/str-lt?
         nonterm (filterv (fn [te :- String] :- Bool (not (proj/terminal-i? idx te)))
                          (proj/work-thread-ids-i idx))]
-    (println (str "ON YOUR PLATE — " (count nonterm) " open"))
-    (plate-group idx "active" (in-condition idx nonterm today before? "active"))
-    (plate-group idx "ready" (in-condition idx nonterm today before? "ready"))
-    (plate-group idx "blocked" (in-condition idx nonterm today before? "blocked"))
-    (plate-group idx "dormant" (in-condition idx nonterm today before? "dormant"))
-    (plate-group idx "draft" (in-condition idx nonterm today before? "draft"))))
+    (println (str "BOARD — " (count nonterm) " open"))
+    (board-group idx "active" (in-condition idx nonterm today before? "active"))
+    (board-group idx "ready" (in-condition idx nonterm today before? "ready"))
+    (board-group idx "blocked" (in-condition idx nonterm today before? "blocked"))
+    (board-group idx "dormant" (in-condition idx nonterm today before? "dormant"))
+    (board-group idx "draft" (in-condition idx nonterm today before? "draft"))))
 
 ;; --- structured (JSON) projections for the MCP edge --------------------------
 (defrecord JThread [id :- String title :- String condition :- String emoji :- String])
@@ -352,7 +353,7 @@
         today (fram.rt/today-iso)
         before? fram.rt/str-lt?]
     (cond
-      [(= what "plate")
+      [(or (= what "board") (= what "plate"))
        (println (fram.rt/to-json
                  (mapv (fn [te :- String] :- JThread (jthread idx te today before?))
                        (filterv (fn [te :- String] :- Bool (not (proj/terminal-i? idx te)))
@@ -391,7 +392,7 @@
        (println (fram.rt/to-json
                  (->JPresentation (proj/condition-emoji idx "active") (proj/condition-emoji idx "ready")
                                   (proj/condition-emoji idx "blocked") (proj/condition-emoji idx "draft"))))]
-      [:else (println "usage: json plate|ready|blocked|needs-review|clock-report|show <id>|presentation")])))
+      [:else (println "usage: json board|ready|blocked|needs-review|clock-report|show <id>|presentation")])))
 
 (defn cmd-needs-review [log :- String] :- Nil
   (let [as (fram.rt/read-log log)
@@ -606,7 +607,8 @@
       [(= cmd "leverage") (cmd-leverage log)]
       [(= cmd "next")     (cmd-next log)]
       [(= cmd "agenda")   (cmd-agenda log)]
-      [(= cmd "plate")    (cmd-plate log)]
+      [(= cmd "board")    (cmd-board log)]
+      [(= cmd "plate")    (cmd-board log)]   ; hidden alias — works, not listed in usage
       [(= cmd "needs-review") (cmd-needs-review log)]
       [(= cmd "audit")    (cmd-audit log)]
       [(= cmd "resolve")
@@ -638,7 +640,7 @@
            [(= sub "projects")   (cf/cmd-projects)]
            [(= sub "workspaces") (cf/cmd-workspaces)]
            [:else (println "usage: clock start <id> | stop | status | report | today | week | sync | map <owner> <project-id> | projects | workspaces")]))]
-      [:else (println "tern usage: capture <title> [owner] | ready | blocked | leverage | next | agenda | plate | needs-review | audit | resolve <@handle|@id> | validate | doctor | json <...> | clock <start|stop|status|report|today|week|sync|map|projects|workspaces>   (engine verbs import/export/show/set/tell/merge route to fram)")])))
+      [:else (println "tern usage: capture <title> [owner] | ready | blocked | leverage | next | agenda | board | needs-review | audit | resolve <@handle|@id> | validate | doctor | listen <agent-id> | json <...> | clock <start|stop|status|report|today|week|sync|map|projects|workspaces>   (engine verbs import/export/show/set/tell/merge route to fram)")])))
 
 (defn -main [& args] :- Nil
   (run (vec args) (fram.rt/threads-dir) (fram.rt/log-path)))

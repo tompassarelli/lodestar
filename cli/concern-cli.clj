@@ -24,8 +24,9 @@
 ;; usage (port = tern board, 7977):
 ;;   declare <agent> <repo> "<intent>" <foot,foot,...>    mint a concern (+ shows overlaps)
 ;;       footprint entries: a code NODE (@mod#n or module/name) on a flipped repo, else a path.
-;;   overlap <concern-id>     who else is in my footprint (code-graph blast join, or path)
-;;   shape   <concern-id>     likely-to-land work in my footprint — build against it
+;;   overlap <concern-id> [--landing]   who else is in my footprint, any status (code-graph
+;;       blast join, or path); likely-to-land entries are MARKED — build against them.
+;;       --landing filters to likely-to-land only. (`shape <id>` = hidden alias for that.)
 ;;   ls [<repo>]              active concerns
 ;;   status  <concern-id> <exploring|building|likely-to-land|landed>   append a maturity level
 ;;   done    <concern-id>     reach `landed`
@@ -121,6 +122,8 @@
       (println (str "  (none) — " none-msg " [code-graph blast join over " (count (:footprint resp)) " footprint node(s)]"))
       (doseq [m hits]
         (println (fmt m))
+        (when (= (:status m) "likely-to-land")
+          (println "       [likely-to-land] — build against this"))
         (println (str "       SHARES (blast-closure): " (str/join " " (sort (:shared m)))))))))
 
 ;; FALLBACK path (non-flipped repo): the path-string touches intersection.
@@ -136,6 +139,8 @@
       (println (str "  (none) — " none-msg " {" (str/join " " (sort mine)) "}"))
       (doseq [m hits]
         (println (fmt m))
+        (when (= (:status m) "likely-to-land")
+          (println "       [likely-to-land] — build against this"))
         (println (str "       SHARES: " (str/join " " (sort (set/intersection mine (:touches m))))))))))
 
 ;; the effective code port for THIS concern: its own stored code_port (set at declare,
@@ -144,6 +149,16 @@
   (let [cport (or (->port (resolved spine c "code_port")) code-port)]
     (if cport (surface-code spine cport c statuses none-msg)
               (surface-path spine c statuses none-msg))))
+
+;; one concept, one word (vocabulary pass, thread 019f2032): `overlap` is THE footprint
+;; view — any status, likely-to-land marked per line. --landing filters to those only
+;; (the old `shape`, kept as a hidden alias).
+(defn overlap! [port c landing?]
+  (if landing?
+    (do (println "LIKELY-TO-LAND work in your footprint — build against these:")
+        (surface port c #{"likely-to-land"} "no likely-to-land work is in your footprint yet"))
+    (do (println (str "Concerns in the footprint of " c " (any status; likely-to-land marked):"))
+        (surface port c nil "nothing else is in your footprint"))))
 
 (let [[ps verb & args] *command-line-args*
       port (Integer/parseInt ps)]
@@ -182,18 +197,16 @@
           (println "  (no warm code daemon for this repo — footprint is path-string; `fram-code-on <repo>` enables code-node overlap)")))
       (println "\nOverlapping concerns — coordinate, you are NOT blocked:")
       (surface port id nil "no other concern is in your footprint")
-      (println (str "\n  next: `concern shape " id "` to build against likely-to-land work;"
-                    "  `concern status " id " likely-to-land` as you near merge.")))
+      (println (str "\n  next: `concern overlap " id "` — who's in your footprint, likely-to-land"
+                    " marked (build against those);  `concern status " id " likely-to-land` as you near merge.")))
 
     "overlap"
-    (let [[c] args]
-      (println (str "Concerns in the footprint of " c " (any status):"))
-      (surface port c nil "nothing else is in your footprint"))
+    (let [[c & flags] args]
+      (overlap! port c (boolean (some #(= % "--landing") flags))))
 
-    "shape"
+    "shape"                                              ; hidden alias: overlap --landing
     (let [[c] args]
-      (println "LIKELY-TO-LAND work in your footprint — shape your feature against these:")
-      (surface port c #{"likely-to-land"} "no likely-to-land work is in your footprint yet"))
+      (overlap! port c true))
 
     ;; A concern is LIVE only while its owning agent is ONLINE in the presence roster
     ;; (renewable-lease liveness — coord/online?). A crashed agent's concerns never got
@@ -234,5 +247,5 @@
       (append! port c "reached" "landed")
       (println (str "✓ " c " landed")))
 
-    (do (println "usage: concern-cli.clj <port> {declare <agent> <repo> \"<intent>\" <foot,> | overlap <id> | shape <id> | ls [repo] | status <id> <st> | done <id>}")
+    (do (println "usage: concern-cli.clj <port> {declare <agent> <repo> \"<intent>\" <foot,> | overlap <id> [--landing] | ls [repo] | status <id> <st> | done <id>}")
         (System/exit 2))))

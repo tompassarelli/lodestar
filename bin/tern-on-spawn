@@ -26,7 +26,7 @@ Other agents may be working here concurrently. You coordinate through CONCERNS, 
 work coexists; declaring never blocks. See who else is in your footprint, and shape your
 feature against what is likely to land before it is in main.
   ~/code/tern/bin/concern declare $ID $RN "<what you're building>" <file1,file2,...>
-  ~/code/tern/bin/concern shape <your-id>     # likely-to-land work in your area -> build against it
+  ~/code/tern/bin/concern overlap <your-id>   # who's in your footprint; likely-to-land marked -> build against it
   ~/code/tern/bin/concern status <id> likely-to-land · done <id> · ls [repo]
 Declare a concern before editing code for a feature, so others can see + shape around your work.
 
@@ -34,7 +34,7 @@ Internal notes / status / scratch / handoffs -> docs/private/ (gitignored), NEVE
 Run \`~/code/tern/bin/ensure-private-docs\` to set up the ignore in a repo before writing there.
 
 To be reachable in REAL TIME, arm your interrupt listener as a BACKGROUND task now:
-  ~/code/tern/bin/tern-arm $ID
+  ~/code/tern/bin/tern listen $ID
 Dormant (no tokens) until a peer addresses you; when it returns you have mail — read it, act, re-arm.
 Ping a peer:  bb ~/code/tern/cli/msg-cli.clj 7977 send $ID <peer-id> "URGENT" "<message>"
 EOF

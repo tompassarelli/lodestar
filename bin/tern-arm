@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# tern-arm <agent-id> — arm your real-time interrupt listener.
+# tern-arm <agent-id> — alias for `tern listen <agent-id>` (the front door).
+# Arms your real-time interrupt listener.
 # RUN THIS AS A BACKGROUND TASK. It is dormant on the coordinator socket (zero poll,
 # zero tokens) until a peer addresses you (a msg to your id or "*", or a watched thread
 # moves), then prints the message and EXITS. In a run-in-background harness that exit

@@ -34,7 +34,7 @@
    "- tell / untell: add or retract a single claim about a thread "
    "(e.g. tell <id> depends_on <other-id>, tell <id> estimate_hours 4, "
    "tell <id> do_on 2026-06-20, tell <id> outcome shipped).\n"
-   "- ready / next / plate / blocked / agenda / leverage: see what to work on.\n"
+   "- ready / next / board / blocked / agenda / leverage: see what to work on.\n"
    "- needs-review: judgments whose inputs moved (stale estimates, expired dates, "
    "edges to abandoned threads) + uncommitted drafts that grew real structure.\n"
    "- show: read one thread's claims.\n"
@@ -63,8 +63,10 @@
     :schema {:type "object" :properties {}} :argv (fn [_] ["json" "ready"])}
    {:name "next"         :desc "The recommended next thread(s) to pull."
     :schema {:type "object" :properties {}} :argv (fn [_] ["next"])}
-   {:name "plate"        :desc "Everything open, bucketed by derived condition. Returns JSON [{id,title,condition}] where condition is active/ready/blocked/draft."
-    :schema {:type "object" :properties {}} :argv (fn [_] ["json" "plate"])}
+   {:name "board"        :desc "Everything open, bucketed by derived condition (kanban view). Returns JSON [{id,title,condition}] where condition is active/ready/blocked/draft."
+    :schema {:type "object" :properties {}} :argv (fn [_] ["json" "board"])}
+   {:name "plate"        :desc "Alias of `board` — everything open, bucketed by derived condition. Prefer `board`."
+    :schema {:type "object" :properties {}} :argv (fn [_] ["json" "board"])}
    {:name "blocked"      :desc "Threads waiting on an unresolved dependency. Returns JSON [{id,title,condition}]."
     :schema {:type "object" :properties {}} :argv (fn [_] ["json" "blocked"])}
    {:name "agenda"       :desc "Calendar view: threads bucketed by do_on (overdue/today/upcoming)."

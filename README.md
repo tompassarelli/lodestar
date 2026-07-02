@@ -24,7 +24,7 @@ operator works — adapt the wrapper to your own setup.
   the engine a life app.
 - **CLI** → `bin/tern`: aims the Fram engine at your data and sets capture
   provenance defaults. Life verbs (`ready`/`blocked`/`leverage`/`next`/`agenda`/
-  `plate`/`capture`/`clock`/…) route to `tern.main`; engine verbs
+  `board`/`capture`/`clock`/…) route to `tern.main`; engine verbs
   (`import`/`export`/`show`/`validate`/`tell`/`untell`/…) route to Fram.
 - **MCP** → `bin/tern-mcp`: the AI-facing edge — every tool maps to a tested
   CLI op through the coordinator write path.

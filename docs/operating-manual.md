@@ -4,7 +4,7 @@
 > describes the current model. What changed (full spec:
 > `docs/claim-native-redesign.md`):
 > - **One project/CLI/engine: `tern`.** `los thread`/`los validate` are
->   **retired** — use `tern` (ready/blocked/next/agenda/plate/show/leverage/
+>   **retired** — use `tern` (ready/blocked/next/agenda/board/show/leverage/
 >   validate/capture/tell/untell/import/export/audit/doctor/up). Time tracking is
 >   **`tern clock`** (claim-native sessions; `los time` and the JSON clock-in
 >   are gone — Clockify is just a sync target now).
@@ -461,7 +461,7 @@ tern ready       # committed, not blocked, not active, not done — do-able now
 tern blocked     # waiting on a depends_on target
 tern next        # the recommended next pull
 tern agenda      # calendar projection: buckets by do_on (overdue/today/next N)
-tern plate       # everything on your plate, bucketed by derived condition
+tern board       # everything open — the kanban board, bucketed by derived condition (alias: plate)
 tern leverage    # high-leverage threads (most unblocks downstream)
 tern show <id>   # one thread's claims + body; resolves id/slug/substring
 tern validate    # integrity check (see below)
@@ -476,8 +476,9 @@ It also lists **promotable** drafts — uncommitted threads that grew real
 structure (deps/estimate/driver/relations) and are ready to `commit`.
 
 `agenda` is the "calendar" — a query over `do_on`, not a separate substrate, the
-same way a "project" is just a thread with children. `plate` is the replacement
-for the old per-state lists: it buckets threads by *derived* condition.
+same way a "project" is just a thread with children. `board` (alias: `plate`) is
+the replacement for the old per-state lists: it buckets threads by *derived*
+condition.
 
 **Writes:**
 
@@ -496,6 +497,8 @@ tern export <out-dir>                       # regenerate files from the log
 tern doctor      # health of the coordinator + log (session-start handshake)
 tern up          # start/revive the coordinator on the canonical log
 tern watch       # event stream (change triggers; promotion prompts)
+tern listen <agent-id>   # arm the real-time interrupt listener, as a background
+                         # task; dormant until a peer pings you (alias: bin/tern-arm)
 ```
 
 ### Writing safely under concurrent agents

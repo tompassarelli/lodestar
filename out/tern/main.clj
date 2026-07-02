@@ -201,7 +201,7 @@
   (doseq [it upcoming]
   (println (str "  " (:do_on it) "  " (short-id (:te it)) "  " (trunc (title-of idx (:te it)) 44))))))
 
-(defn- plate-group [idx ^String label grp]
+(defn- board-group [idx ^String label grp]
   (if (not (empty? grp)) (do
   (println (str "\n" (proj/condition-emoji idx label) " " label " (" (count grp) ")"))
   (doseq [te grp]
@@ -210,17 +210,17 @@
 (defn- in-condition [idx nonterm ^String today before? ^String c]
   (filterv (fn [te] (= (proj/condition-i idx te today before?) c)) nonterm))
 
-(defn cmd-plate [^String log]
+(defn cmd-board [^String log]
   (let [idx (k/build-index (:claims (fold/fold (fram.rt/read-log log))))
    today (fram.rt/today-iso)
    before? fram.rt/str-lt?
    nonterm (filterv (fn [te] (not (proj/terminal-i? idx te))) (proj/work-thread-ids-i idx))]
-  (println (str "ON YOUR PLATE — " (count nonterm) " open"))
-  (plate-group idx "active" (in-condition idx nonterm today before? "active"))
-  (plate-group idx "ready" (in-condition idx nonterm today before? "ready"))
-  (plate-group idx "blocked" (in-condition idx nonterm today before? "blocked"))
-  (plate-group idx "dormant" (in-condition idx nonterm today before? "dormant"))
-  (plate-group idx "draft" (in-condition idx nonterm today before? "draft"))))
+  (println (str "BOARD — " (count nonterm) " open"))
+  (board-group idx "active" (in-condition idx nonterm today before? "active"))
+  (board-group idx "ready" (in-condition idx nonterm today before? "ready"))
+  (board-group idx "blocked" (in-condition idx nonterm today before? "blocked"))
+  (board-group idx "dormant" (in-condition idx nonterm today before? "dormant"))
+  (board-group idx "draft" (in-condition idx nonterm today before? "draft"))))
 
 (defrecord JThread [id title condition emoji])
 
@@ -293,7 +293,7 @@
    today (fram.rt/today-iso)
    before? fram.rt/str-lt?]
   (cond
-  (= what "plate") (println (fram.rt/to-json (mapv (fn [te] (jthread idx te today before?)) (filterv (fn [te] (not (proj/terminal-i? idx te))) (proj/work-thread-ids-i idx)))))
+  (or (= what "board") (= what "plate")) (println (fram.rt/to-json (mapv (fn [te] (jthread idx te today before?)) (filterv (fn [te] (not (proj/terminal-i? idx te))) (proj/work-thread-ids-i idx)))))
   (= what "ready") (println (fram.rt/to-json (mapv (fn [te] (jthread idx te today before?)) (proj/ready idx today before?))))
   (= what "blocked") (println (fram.rt/to-json (mapv (fn [te] (jthread idx te today before?)) (filterv (fn [te] (= (proj/condition-i idx te today before?) "blocked")) (proj/work-thread-ids-i idx)))))
   (= what "needs-review") (let [latest (fold/fold-latest as)
@@ -305,7 +305,7 @@
   (println (fram.rt/to-json (->JClockReport (mapv (fn [r] (->JClockRow (short-id (:te r)) (title-of idx (:te r)) (:est-h r) (:act-sec r) (:term r))) rs) (->JCalib (:pct cal) (:sample cal))))))
   (= what "show") (println (fram.rt/to-json (mapv (fn [c] (->JClaim (:p c) (:r c))) (k/q-by-l (:claims f) (str "@" arg)))))
   (= what "presentation") (println (fram.rt/to-json (->JPresentation (proj/condition-emoji idx "active") (proj/condition-emoji idx "ready") (proj/condition-emoji idx "blocked") (proj/condition-emoji idx "draft"))))
-  :else (println "usage: json plate|ready|blocked|needs-review|clock-report|show <id>|presentation"))))
+  :else (println "usage: json board|ready|blocked|needs-review|clock-report|show <id>|presentation"))))
 
 (defn cmd-needs-review [^String log]
   (let [as (fram.rt/read-log log)
@@ -457,7 +457,8 @@
   (= cmd "leverage") (cmd-leverage log)
   (= cmd "next") (cmd-next log)
   (= cmd "agenda") (cmd-agenda log)
-  (= cmd "plate") (cmd-plate log)
+  (= cmd "board") (cmd-board log)
+  (= cmd "plate") (cmd-board log)
   (= cmd "needs-review") (cmd-needs-review log)
   (= cmd "audit") (cmd-audit log)
   (= cmd "resolve") (if (>= (count args) 2) (cmd-resolve log (nth args 1)) (println "usage: resolve <@handle|@id>"))
@@ -477,7 +478,7 @@
   (= sub "projects") (cf/cmd-projects)
   (= sub "workspaces") (cf/cmd-workspaces)
   :else (println "usage: clock start <id> | stop | status | report | today | week | sync | map <owner> <project-id> | projects | workspaces")))
-  :else (println "tern usage: capture <title> [owner] | ready | blocked | leverage | next | agenda | plate | needs-review | audit | resolve <@handle|@id> | validate | doctor | json <...> | clock <start|stop|status|report|today|week|sync|map|projects|workspaces>   (engine verbs import/export/show/set/tell/merge route to fram)"))))
+  :else (println "tern usage: capture <title> [owner] | ready | blocked | leverage | next | agenda | board | needs-review | audit | resolve <@handle|@id> | validate | doctor | listen <agent-id> | json <...> | clock <start|stop|status|report|today|week|sync|map|projects|workspaces>   (engine verbs import/export/show/set/tell/merge route to fram)"))))
 
 (defn -main [& args]
   (run (vec args) (fram.rt/threads-dir) (fram.rt/log-path)))
